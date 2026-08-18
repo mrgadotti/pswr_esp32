@@ -59,9 +59,11 @@ constexpr uint16_t SWR_THRESHOLD_DEFAULT = 10;   // mW
 //  to read the control that would bring it back - and on a resistive panel there
 //  is no muscle memory to fall back on.  10% is still clearly legible indoors.
 //
-//  PWM: LEDC channel 0 at 5 kHz / 8 bits.  Above the audible range (the CYD
-//  drives the LED string through a small transistor that will sing at 1 kHz) and
+//  PWM: LEDC channel 0 at 5 kHz / 8 bits.  Above the audible range (both boards
+//  drive the LED string through a small transistor that will sing at 1 kHz) and
 //  far below the point where the ESP32's 80 MHz LEDC clock loses resolution.
+//  A board whose backlight pin is not a GPIO at all sets BOARD_HAS_BACKLIGHT_PWM
+//  to 0 and simply stores the setting - see Ili9341Driver::setBrightness().
 //*********************************************************************************
 constexpr uint8_t  BRIGHTNESS_MIN     = 10;    // percent
 constexpr uint8_t  BRIGHTNESS_MAX     = 100;

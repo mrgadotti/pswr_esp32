@@ -1,10 +1,17 @@
 //*********************************************************************************
-//  Ili9341Driver.h  -  Display + touch hardware for the CYD.
+//  Ili9341Driver.h  -  Display + touch hardware.
 //
-//  Owns the TFT_eSPI panel and the XPT2046 touch controller (on its own VSPI
-//  bus).  Pure hardware abstraction - NO business logic, and no LVGL: the
-//  binding to LVGL lives in LvglPort, which is the only place that includes
-//  both.  The TFT object is exposed by reference so LvglPort can flush to it.
+//  Owns the TFT_eSPI panel and the XPT2046 touch controller (on its own SPI
+//  host, never the panel's).  Pure hardware abstraction - NO business logic, and
+//  no LVGL: the binding to LVGL lives in LvglPort, which is the only place that
+//  includes both.  The TFT object is exposed by reference so LvglPort can flush
+//  to it.
+//
+//  BOARD-INDEPENDENT BY CONSTRUCTION.  Every pin, bus, rotation and quirk comes
+//  from Pins.h (which resolves to one of include/boards/*.h) or from TFT_eSPI's
+//  own build flags, so supporting a second panel module cost this file nothing
+//  but the BOARD_* names below.  Anything that reads like "the CYD does X" and
+//  is written as a literal here is a bug waiting for the next board.
 //*********************************************************************************
 #pragma once
 
@@ -17,9 +24,12 @@
 #include "Pins.h"
 #include "RawTouch.h"
 
-//  Panel geometry (landscape, rotation 1).
-constexpr int16_t SCREEN_W = 320;
-constexpr int16_t SCREEN_H = 240;
+//  Panel geometry after rotation, from the selected board profile.  Kept as
+//  constexpr ints rather than used as raw macros because half the UI does signed
+//  arithmetic with them (SCREEN_W - 1, centre offsets), and a bare macro would
+//  drag whatever type the literal happened to have into every one of those.
+constexpr int16_t SCREEN_W = BOARD_SCREEN_W;
+constexpr int16_t SCREEN_H = BOARD_SCREEN_H;
 
 class Ili9341Driver : public RawTouch, public Backlight {
 public:
@@ -44,8 +54,9 @@ public:
   bool readRaw(int& x, int& y) override;
   void setTouchCal(int16_t minX, int16_t maxX, int16_t minY, int16_t maxY) override;
 
-  //  Backlight: PWM duty in percent.  begin() takes TFT_BL away from TFT_eSPI's
-  //  plain on/off control and gives it to LEDC.
+  //  Backlight: PWM duty in percent.  On a board with BOARD_HAS_BACKLIGHT_PWM,
+  //  begin() takes TFT_BL away from TFT_eSPI's plain on/off control and gives it
+  //  to LEDC; on one without, this is accepted and ignored.
   void setBrightness(uint8_t percent) override;
 
 private:

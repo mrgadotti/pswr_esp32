@@ -1,8 +1,9 @@
 # PSWR_CYD — RF Power & SWR Meter
 
-Firmware for the **ESP32-2432S028R "Cheap Yellow Display" (CYD)** implementing a forward/reflected
-power and SWR meter, with multiple display modes, an on-screen configuration menu and touch
-calibration.
+Firmware for a forward/reflected power and SWR meter, with multiple display modes, an on-screen
+configuration menu and touch calibration. It builds for **two** boards from the same sources —
+the **ESP32-2432S028R "Cheap Yellow Display" (CYD)** and a plain **ESP32 Dev Module driving a
+discrete 2.8" ILI9341 + XPT2046 module** — selected by one line in `platformio.ini`.
 
 **Author:** Marcelo R. Gadotti — PP5MGT · **Version:** 1.00 · Licensed under **GPL v3 or later**.
 
@@ -19,14 +20,119 @@ would be a worse instrument, not a better one.
 
 ## Hardware
 
+**Two boards, one firmware.** The target is a single build flag: change `default_envs` in
+`platformio.ini`, or pass `pio run -e <env>`. No source file is edited to change board.
+
+| | `[env:cyd]` | `[env:esp32dev_ili9341]` |
+|---|---|---|
+| Board | ESP32-2432S028R "Cheap Yellow Display" — everything integrated | ESP32 Dev Module + a discrete 2.8" ILI9341 + XPT2046 module (the common red "TJCTM24028-SPI" board) |
+| Select with | `-D BOARD_CYD` | `-D BOARD_ESP32_ILI9341` |
+| Panel bus | **HSPI** (`USE_HSPI_PORT`), IO_MUX pins, 55 MHz | **VSPI**, IO_MUX pins, 40 MHz |
+| Panel init | `ILI9341_2_DRIVER`, colours **inverted** | `ILI9341_DRIVER`, not inverted |
+| Touch bus | **VSPI** | **HSPI** |
+| Backlight | `TFT_BL` GPIO 21 | `TFT_BL` GPIO 27 |
+| Status LEDs | onboard RGB, active-low | none fitted; one flag away if you wire them |
+| I²C (ADS1015) | SDA 27 / SCL 22 | SDA 21 / SCL 22 |
+
+> **The invariant both boards keep: the touch controller is never on the panel's SPI host.** The
+> flush path deliberately leaves a DMA transfer in flight so LVGL can render the next area against
+> it (§ `LvglPort.cpp`), and a touch read poking the same peripheral mid-transfer corrupts the
+> screen at random — intermittently, under load, which is the worst way to find it. `Pins.h`
+> refuses to compile a board whose `BOARD_TOUCH_SPI_BUS` collides with `USE_HSPI_PORT`, so the
+> invariant is enforced rather than merely documented.
+
+Common to both:
+
 | Peripheral | Detail |
 |---|---|
-| Display | ILI9341 320×240 via **TFT_eSPI** on HSPI (pins in `platformio.ini` build flags) |
-| Backlight | `TFT_BL` on GPIO 21, LEDC channel 0 at 5 kHz / 8 bits; duty floored at 10% so a menu can never leave the operator holding a black panel |
-| Touch | **XPT2046** resistive, on a dedicated VSPI bus |
+| Display | ILI9341 320×240 via **TFT_eSPI** (pins in `platformio.ini` build flags) |
+| Backlight | LEDC channel 0 at 5 kHz / 8 bits; duty floored at 10% so a menu can never leave the operator holding a black panel |
+| Touch | **XPT2046** resistive, on its own SPI host |
 | ADC | **ADS1015** (I2C `0x48`…`0x4B`, one per coupler); `AIN0` = forward, `AIN1` = reflected |
-| RGB LED | onboard, active-low (green = power detected, red = SWR alarm) |
 | Cores | sampling + math on core 0, **LVGL 8.4** user interface on core 1 |
+
+Where a pin is *defined* follows the same split in both tables below: the seven `TFT_*` lines are
+TFT_eSPI build flags in `platformio.ini` (that library is configured by macros at compile time and
+cannot read a `constexpr`), everything else is a `constexpr` in the board header. One copy of each,
+no second place to silently disagree.
+
+### Pinout — `cyd`
+
+Nothing to wire: the ESP32, the panel, the touch controller and the RGB LED are one board. This is
+a transcription of that wiring, for reading a schematic or checking a probe — not a build step. The
+only thing the operator adds is the ADS1015, on the free pins brought out at **CN1**.
+
+| Signal | GPIO | Bus / note |
+|---|---|---|
+| `TFT_MISO` | 12 | HSPI (IO_MUX) |
+| `TFT_MOSI` | 13 | HSPI (IO_MUX) |
+| `TFT_SCLK` | 14 | HSPI (IO_MUX) |
+| `TFT_CS` | 15 | HSPI (IO_MUX) |
+| `TFT_DC` | 2 | |
+| `TFT_RST` | −1 | no GPIO — panel reset is tied to the ESP32's own reset line |
+| `TFT_BL` | 21 | backlight, driven by LEDC (not TFT_eSPI's on/off) |
+| `TOUCH_CLK` | 25 | VSPI |
+| `TOUCH_MISO` | 39 | VSPI (input-only pin) |
+| `TOUCH_MOSI` | 32 | VSPI |
+| `TOUCH_CS` | 33 | VSPI |
+| `TOUCH_IRQ` | 36 | input-only |
+| `LED_R` | 4 | SWR alarm — active **low** |
+| `LED_G` | 16 | power detected — active **low** |
+| `LED_B` | 17 | unused |
+| `I2C_SDA` | 27 | ADS1015, CN1 |
+| `I2C_SCL` | 22 | ADS1015, CN1 |
+
+### Pinout and wiring — `esp32dev_ili9341`
+
+Here the pin map *is* the wiring instruction. This table is the same one carried in
+`include/boards/board_esp32_ili9341.h` beside the constants, and the two are meant to be changed
+together:
+
+| Module | ESP32 | Bus / note |
+|---|---|---|
+| VCC | 3V3 | **not 5 V** — the logic is 3.3 V whatever the silkscreen says about the regulator |
+| GND | GND | |
+| CS | GPIO 5 | VSPI (IO_MUX) — `TFT_CS` |
+| RESET | GPIO 4 | `TFT_RST`; tie to EN and set `TFT_RST=-1` to free the pin |
+| DC / RS | GPIO 2 | `TFT_DC` |
+| SDI / MOSI | GPIO 23 | VSPI (IO_MUX) — `TFT_MOSI` |
+| SCK | GPIO 18 | VSPI (IO_MUX) — `TFT_SCLK` |
+| LED | GPIO 27 | `TFT_BL`; tie to 3V3 instead and set `BOARD_HAS_BACKLIGHT_PWM 0` |
+| SDO / MISO | GPIO 19 | VSPI (IO_MUX) — `TFT_MISO` |
+| T_CLK | GPIO 25 | HSPI — `TOUCH_CLK` |
+| T_CS | GPIO 33 | HSPI — `TOUCH_CS` |
+| T_DIN | GPIO 32 | HSPI — `TOUCH_MOSI` |
+| T_DO | GPIO 39 | HSPI — `TOUCH_MISO`; input-only pin, which is what a MISO line wants |
+| T_IRQ | GPIO 36 | `TOUCH_IRQ`; input-only |
+| ADS1015 | SDA 21 / SCL 22 | `I2C_SDA` / `I2C_SCL` — the ESP32 Arduino default pair |
+| *(status LEDs)* | 16 / 17 / 26 | **not fitted by default.** `LED_R` / `LED_G` / `LED_B`, wired but inert until `BOARD_HAS_RGB_LED` is set to 1; the pins are already reserved so fitting them later is one flag, not a re-wire |
+
+The touch lines get their own four pins rather than sharing the panel's, which is what buys the
+second SPI host and the invariant above. Pins deliberately avoided: **6–11** are the flash, **12**
+(MTDI) is strapped at boot and a module that pulls it up will not start — which is why the touch bus
+skips the HSPI IO_MUX pins even though it is on the HSPI host, harmless at 2 MHz through the GPIO
+matrix — and **34–39** are input-only, so only `T_DO` and `T_IRQ` are put there.
+
+**Run Touch Calibrate first.** The compile-time mapping in the board header is the CYD's, carried
+over as a starting point; on a discrete panel it is a guess.
+
+### Board constants that are not pins
+
+Every value above has a companion in the same board header that decides what the pin *means*. These
+are the ones worth knowing before probing anything:
+
+| Constant | `cyd` | `esp32dev_ili9341` | What it decides |
+|---|---|---|---|
+| `BOARD_TFT_INVERT` | 1 | 0 | whether the driver calls `invertDisplay(true)`. Wrong value = a display that works perfectly, in negative |
+| `BOARD_TFT_ROTATION` | 1 | 1 | TFT_eSPI rotation; the whole UI is laid out for 320×240 landscape |
+| `BOARD_TOUCH_ROTATION` | 1 | 1 | XPT2046 rotation — the flag to change if touch answers on the wrong axis |
+| `TOUCH_MIN_X` … `TOUCH_MAX_Y` | 200…3700 / 240…3800 | same, as a starting guess | default raw-to-screen mapping, overwritten by Touch Calibrate and kept in NVS. Swap MIN and MAX on an axis that responds backwards — a reversed span is accepted on purpose |
+| `TOUCH_MIN_PRESSURE` | 300 | 300 | raw counts below which a press is ignored. Raise it against phantom taps, lower it if light presses are missed |
+| `TFT_BACKLIGHT_ON` | `HIGH` | `HIGH` | which level lights the panel (a `platformio.ini` flag, since TFT_eSPI reads it too) |
+| `BOARD_HAS_BACKLIGHT_PWM` | 1 | 1 | whether `TFT_BL` is a GPIO this firmware drives. 0 = LED tied to 3V3; the brightness setting is then stored and ignored |
+| `BOARD_HAS_RGB_LED` | 1 | 0 | whether the status LEDs exist |
+| `BOARD_LED_ACTIVE_LOW` | 1 | 0 | which level lights them |
+| `I2C_HZ` | 400 kHz | 400 kHz | ADS1015 bus clock |
 
 > If no ADS1015 is detected at boot, the meter runs on a **randomly walking mock** so the whole
 > interface — autoscale, bars, scope and all — can be exercised without RF hardware. It deliberately
@@ -112,7 +218,10 @@ graph TD
 
 ```
 include/                  # shared constants and types (no logic)
-  Pins.h                  #   touch/I2C/LED pins + default touch mapping
+  Pins.h                  #   board SELECTOR: picks one boards/*.h and checks the contract
+  boards/                 #   one header per supported board - pins + feature flags
+    board_cyd.h           #     ESP32-2432S028R "Cheap Yellow Display"
+    board_esp32_ili9341.h #     ESP32 Dev Module + discrete 2.8" ILI9341 + XPT2046
   AppConfig.h             #   VERSION, cal/threshold defaults, buffers, mock, MEMORY BUDGET
   Types.h                 #   DetectorType, DisplayMode, CalPoint, Settings, MeterReadings
   RfDetector.h            #   interface: any RF front-end (volts out)
@@ -515,17 +624,36 @@ true while the caller keeps its cadence.
 ## Build & flash
 
 ```bash
-pio run -e esp32dev            # compile
-pio run -e esp32dev -t upload  # flash the CYD
-pio device monitor             # serial monitor (optional)
+pio run                                 # compile the board named by default_envs
+pio run -t upload                       # flash it
+pio run -e esp32dev_ili9341 -t upload   # one-off build of the other board
+pio device monitor                      # serial monitor (optional)
+```
+
+`pio run` builds the board named by `default_envs` and **only** that one — the other environment
+stays defined and ready but is never compiled unless asked for by name. Switching target is one line
+at the top of `platformio.ini`, never a source edit:
+
+```ini
+[platformio]
+default_envs = cyd                  ; or: esp32dev_ili9341
 ```
 
 In `platformio.ini`:
 
+- `[common]` holds everything board-independent; the two board environments `extends` it and add
+  only their `-D BOARD_*`, their TFT_eSPI panel pins, the ILI9341 init variant and the bus clock.
+  Those flags have to be macros — TFT_eSPI is configured at compile time under `USER_SETUP_LOADED`
+  and cannot read a `constexpr` — which is exactly why the panel wiring lives here and everything
+  else lives in `include/boards/`. One copy each, no file that can silently disagree with the other.
+- Everything the firmware itself owns (touch controller and its bus, I²C, LEDs, panel quirks,
+  optional peripherals) is in the board header. `Pins.h` selects one and then **checks the
+  contract**: a board header missing a name is a compile error next to the list of what a board must
+  provide, not a mystery at runtime. Adding a third board is a new header, an `#elif`, and an env.
 - `lib_ldf_mode = deep+` resolves the cross-includes between the `lib/` modules.
-- `build_flags = -I include` puts the shared headers (`Types.h`, `AppConfig.h`, `Pins.h`) on the
-  include path for **every** compilation unit — the project `include/` folder is otherwise only
-  auto-added for `src/`, not for libraries in `lib/`.
+- `build_flags = -I include` puts the shared headers (`Types.h`, `AppConfig.h`, `Pins.h`,
+  `boards/*.h`) on the include path for **every** compilation unit — the project `include/` folder
+  is otherwise only auto-added for `src/`, not for libraries in `lib/`.
 - TFT_eSPI and LVGL are both configured **without** copying files into `.pio/libdeps`: TFT_eSPI via
   `-D USER_SETUP_LOADED` plus its settings as build flags, LVGL via `-D LV_CONF_PATH` pointing at
   `include/lv_conf.h`. Platform and library versions are pinned deliberately.
@@ -537,6 +665,10 @@ In `platformio.ini`:
 ```bash
 pio test -e native             # host tests: PowerMath + UiFormat
 ```
+
+No `BOARD_*` is set for the host environment and none is needed: nothing that reaches `Pins.h` is
+compiled there. That is also why a missing board is an `#error` rather than a default — a default
+would quietly build somebody's firmware against the wrong pin map.
 
 Two suites, both on the host, both covering places where a regression is a wrong *reading* rather
 than a crash. `test_powermath` checks the measurement chain against **hand-computed** values rather

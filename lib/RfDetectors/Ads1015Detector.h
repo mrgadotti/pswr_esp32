@@ -12,7 +12,8 @@
 //  MULTIPLE DEVICES below and MeterEngine.cpp).
 //
 //  Config: single-shot, PGA +/-4.096 V (LSB = 2 mV), 3300 SPS.  AIN0 = forward,
-//  AIN1 = reflected, matching the CYD wiring.
+//  AIN1 = reflected - a property of how the coupler is wired to the converter,
+//  identical on every board this firmware builds for.
 //
 //  PGA is +/-4.096 V on purpose, even though the board is 3V3 and the range can
 //  never be filled.  The next step down (+/-2.048 V) would halve the LSB to 1 mV
@@ -62,8 +63,8 @@ public:
   static uint8_t probeAll(uint8_t sda, uint8_t scl, uint32_t hz,
                            RfDetector* fitted[ADDR_N]);
 
-  //  sda/scl/address default to the CYD wiring in Pins.h; pass others to reuse
-  //  this on a different board.
+  //  sda/scl/address come from the SELECTED board's I2C pins in Pins.h; pass
+  //  others to reuse this outside the meter entirely.
   Ads1015Detector(uint8_t sda, uint8_t scl, uint8_t address, uint32_t hz = 400000)
     : sda_(sda), scl_(scl), addr_(address), hz_(hz) {}
 

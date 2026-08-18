@@ -1,5 +1,5 @@
 //*********************************************************************************
-//  LvglPort.h  -  Binds LVGL to the CYD hardware.
+//  LvglPort.h  -  Binds LVGL to the panel hardware.
 //
 //  The ONLY translation unit in the project that includes both lvgl.h and
 //  TFT_eSPI.h.  Ili9341Driver stays a pure hardware abstraction; everything

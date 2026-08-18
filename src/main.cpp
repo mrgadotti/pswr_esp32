@@ -1,6 +1,6 @@
 //*********************************************************************************
 //**
-//** PSWR_CYD  -  RF Power & SWR Meter for the ESP32 Cheap Yellow Display
+//** PSWR_CYD  -  RF Power & SWR Meter for the ESP32 + ILI9341, on two boards
 //**
 //** Author..: Marcelo R. Gadotti (PP5MGT)
 //** Version.: 1.00
@@ -15,12 +15,28 @@
 //** purpose: a meter that reads differently from the one its users calibrated
 //** against would be a worse instrument, not a better one.
 //**
-//** Target..: ESP32-2432S028R "Cheap Yellow Display" (CYD)
+//** Targets.: TWO boards, selected by ONE define - no source edit either way.
+//**           Change `default_envs` in platformio.ini, or pass -e:
+//**
+//**             [env:cyd]               BOARD_CYD
+//**               ESP32-2432S028R "Cheap Yellow Display": integrated ILI9341 +
+//**               XPT2046 + RGB LED, panel on HSPI, touch on VSPI.
+//**
+//**             [env:esp32dev_ili9341]  BOARD_ESP32_ILI9341
+//**               ESP32 Dev Module + a discrete 2.8" ILI9341 + XPT2046 module,
+//**               panel on VSPI, touch on HSPI, no status LEDs.  Wiring table in
+//**               include/boards/board_esp32_ili9341.h.
+//**
+//**           Common to both:
 //**           - ILI9341 320x240 via TFT_eSPI (pins in platformio.ini build flags)
-//**           - XPT2046 resistive touch on its own VSPI bus
+//**           - XPT2046 resistive touch, always on the host the panel does NOT use
 //**           - ADS1015 (I2C) replaces the AD7991; AIN0=Fwd, AIN1=Rev
 //**           - dual core: measurement on core 0, user interface on core 1
 //**           - user interface built on LVGL 8.4
+//**
+//** What differs between boards is confined to include/boards/*.h (touch, I2C,
+//** LEDs, panel quirks) and the TFT_eSPI build flags in platformio.ini.  The
+//** measurement chain, the UI and this file are the same firmware on both.
 //**
 //** If no ADS1015 is detected at boot, the meter falls back to a simulated
 //** detector so the whole interface stays exercisable without RF hardware.
@@ -32,6 +48,7 @@
 //**   PowerMath      - detector volts -> power/PEP/SWR.  No HW, no RTOS.
 //**   MeterEngine    - core-0 task wiring a detector to the math
 //**   Ili9341Driver  - TFT_eSPI panel and XPT2046 touch (hardware only)
+//**   include/boards - per-board pin maps and feature flags, picked by Pins.h
 //**   LvglPort       - LVGL display + input drivers, draw buffers, DMA flush
 //**   Ui/            - screens, widgets, theme, formatting, screen stack
 //**
@@ -73,6 +90,21 @@ LvglPort      lvgl;
 UiApp         ui;
 
 static TaskHandle_t uiTaskHandle = nullptr;
+
+#if BOARD_HAS_RGB_LED
+//  Which level lights an LED is wiring, not policy: the CYD's onboard RGB is
+//  common anode (LOW lights it), a discrete LED on a devkit is normally the
+//  other way round.  Resolving it once here keeps every call site reading as
+//  "on" and "off" rather than as a level that means the opposite on the next
+//  board.
+  #if BOARD_LED_ACTIVE_LOW
+static constexpr uint8_t LED_ON  = LOW;
+static constexpr uint8_t LED_OFF = HIGH;
+  #else
+static constexpr uint8_t LED_ON  = HIGH;
+static constexpr uint8_t LED_OFF = LOW;
+  #endif
+#endif
 
 #if BRINGUP_STATS
 //*********************************************************************************
@@ -190,12 +222,16 @@ static void uiTask(void*)
   {
     meter.syncReadings();            // take the latest snapshot from core 0
 
+#if BOARD_HAS_RGB_LED
+    //  The LEDs only ever repeat what the screen already shows, which is why a
+    //  board without them is a supported configuration and not a degraded one.
     const MeterReadings& r = meter.readings();
-    digitalWrite(LED_G, r.powerDetected ? LOW : HIGH);
+    digitalWrite(LED_G, r.powerDetected ? LED_ON : LED_OFF);
     //  Driven both ways.  It used to only ever be switched ON, which was the
     //  visible half of an alarm that had no way to be cleared at all; now that
     //  a tap acknowledges it, the LED has to be able to follow it back off.
-    digitalWrite(LED_R, r.swrAlarm ? LOW : HIGH);
+    digitalWrite(LED_R, r.swrAlarm ? LED_ON : LED_OFF);
+#endif
 
 #if BRINGUP_STATS
     statsTick();
@@ -235,10 +271,12 @@ void setup()
   Serial.begin(115200);
 #endif
 
-  // CYD onboard RGB LED (active LOW) - off at boot.
-  pinMode(LED_R, OUTPUT); digitalWrite(LED_R, HIGH);
-  pinMode(LED_G, OUTPUT); digitalWrite(LED_G, HIGH);
-  pinMode(LED_B, OUTPUT); digitalWrite(LED_B, HIGH);
+#if BOARD_HAS_RGB_LED
+  // Status LEDs - off at boot.
+  pinMode(LED_R, OUTPUT); digitalWrite(LED_R, LED_OFF);
+  pinMode(LED_G, OUTPUT); digitalWrite(LED_G, LED_OFF);
+  pinMode(LED_B, OUTPUT); digitalWrite(LED_B, LED_OFF);
+#endif
 
   config.begin();                  // defaults + load/validate from NVS
   display.begin();                 // TFT panel + touch controller

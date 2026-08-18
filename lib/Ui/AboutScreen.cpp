@@ -6,6 +6,7 @@
 #include <stdio.h>
 
 #include "AppConfig.h"
+#include "Pins.h"
 #include "UiApp.h"
 #include "UiCallback.h"
 #include "UiFormat.h"
@@ -59,6 +60,12 @@ void AboutScreen::build()
   addLine(body, b, UI_FONT_MED, UI_WHITE);
   addLine(body, "Marcelo R. Gadotti  -  PP5MGT", UI_FONT_SMALL, UI_CYAN);
   addLine(body, "GPL v3", UI_FONT_SMALL, UI_GREY);
+
+  //  Which board this binary was built for.  Worth a line now that there is
+  //  more than one: the two builds are visually identical until something is
+  //  wired differently, and "wrong firmware for this hardware" is otherwise
+  //  diagnosed by staring at a dead touch panel.
+  addLine(body, "Board: " BOARD_NAME, UI_FONT_SMALL, UI_GREY);
 
   //  ---- front end -----------------------------------------------------------
   addLine(body, "", UI_FONT_SMALL, UI_GREY);
