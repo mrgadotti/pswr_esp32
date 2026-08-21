@@ -136,15 +136,20 @@ void MeterEngine::taskLoop()
 
   for (;;)
   {
-    if (couplerCount_ && settings_->coupler != activeCoupler_)
-      selectCoupler(settings_->coupler);
+    //  Load the coupler once: reading the atomic twice in one expression could
+    //  see two different values if the UI wrote in between.
+    if (couplerCount_) {
+      const uint8_t c = settings_->coupler.load();
+      if (c != activeCoupler_)
+        selectCoupler(c);
+    }
 
     //  Alarm acknowledgement, handled the same way and for the same reason: the
     //  latch lives in live_, which only this task may write.  Cleared BEFORE the
     //  sample, so a fault still present re-latches on this very cycle and the
     //  acknowledgement cannot hide a live problem for even one frame.
-    if (clearAlarmReq_) {
-      clearAlarmReq_  = false;
+    if (clearAlarmReq_.load()) {
+      clearAlarmReq_.store(false);
       live_.swrAlarm  = false;
     }
 

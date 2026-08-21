@@ -16,7 +16,6 @@
 #include <unity.h>
 
 #include <math.h>
-#include <string.h>
 
 #include "AppConfig.h"
 #include "PowerMath.h"
@@ -27,12 +26,12 @@
 //*********************************************************************************
 
 //  A Settings with the compile-time calibration in EVERY coupler, so a test only
-//  has to change the coupler it cares about.
-static Settings makeSettings(DetectorType det)
+//  has to change the coupler it cares about.  Fills a caller-owned struct rather
+//  than returning one by value: Settings is no longer copyable since coupler
+//  became std::atomic, and it is initialised field-by-field rather than memset -
+//  memset over an atomic is not a valid way to initialise it.
+static void makeSettings(Settings& s, DetectorType det)
 {
-  Settings s;
-  memset(&s, 0, sizeof(s));
-
   for (uint8_t i = 0; i < MAX_COUPLERS; i++) {
     s.cal[i].calAd[0] = { CAL1_NOR_VALUE, CAL1_NOR_VALUE, CALFWD1_DEFAULT, CALREV1_DEFAULT };
     s.cal[i].calAd[1] = { CAL2_NOR_VALUE, CAL2_NOR_VALUE, CALFWD2_DEFAULT, CALREV2_DEFAULT };
@@ -44,7 +43,18 @@ static Settings makeSettings(DetectorType det)
   s.pepIdx            = 0;
   s.swrAlarmTrig      = SWR_ALARM_DEFAULT;
   s.swrAlarmPwrThresh = SWR_THRESHOLD_DEFAULT;
-  return s;
+
+  //  The remaining fields are not read by PowerMath, but they are still written
+  //  so no test ever observes an indeterminate value.
+  s.scaleRange[0] = SCALE_RANGE1;
+  s.scaleRange[1] = SCALE_RANGE2;
+  s.scaleRange[2] = SCALE_RANGE3;
+  s.modeDisplay   = DisplayMode::PowerBarPep;
+  s.band          = 0;
+  s.touchMinX = s.touchMaxX = 0;
+  s.touchMinY = s.touchMaxY = 0;
+  s.theme      = THEME_DEFAULT;
+  s.brightness = BRIGHTNESS_DEFAULT;
 }
 
 //  One acquisition through a fresh PowerMath, which is what isolates the
@@ -71,7 +81,8 @@ void tearDown() {}
 //*********************************************************************************
 static void test_ad8307_reads_cal_point_exactly()
 {
-  Settings      s = makeSettings(DetectorType::AD8307);
+  Settings      s;
+  makeSettings(s, DetectorType::AD8307);
   MeterReadings r = measure(s, CALFWD1_DEFAULT, CALREV2_DEFAULT);
 
   TEST_ASSERT_DOUBLE_WITHIN(0.001, 40.0, r.ad8307FwdDbm);   // P1 = 400 -> 40.0 dBm
@@ -92,7 +103,8 @@ static void test_ad8307_reads_cal_point_exactly()
 //*********************************************************************************
 static void test_ad8307_coupler_selects_its_own_calibration()
 {
-  Settings s = makeSettings(DetectorType::AD8307);
+  Settings s;
+  makeSettings(s, DetectorType::AD8307);
 
   //  Coupler 2: same detector volts, levels 10 dB lower.
   s.cal[1].calAd[0] = { CAL1_NOR_VALUE - 100, CAL1_NOR_VALUE - 100,
@@ -119,7 +131,8 @@ static void test_ad8307_coupler_selects_its_own_calibration()
 //*********************************************************************************
 static void test_diode_coupler_selects_its_own_meter_cal()
 {
-  Settings s = makeSettings(DetectorType::Diode);
+  Settings s;
+  makeSettings(s, DetectorType::Diode);
   s.cal[1].meterCal = 2.0f * METER_CAL;
 
   s.coupler = 1;
@@ -142,7 +155,8 @@ static void test_diode_coupler_selects_its_own_meter_cal()
 //*********************************************************************************
 static void test_coupler_index_is_clamped()
 {
-  Settings s = makeSettings(DetectorType::AD8307);
+  Settings s;
+  makeSettings(s, DetectorType::AD8307);
 
   s.coupler = 0;                TEST_ASSERT_EQUAL_UINT8(0, s.couplerIdx());
   s.coupler = 1;                TEST_ASSERT_EQUAL_UINT8(0, s.couplerIdx());
@@ -157,7 +171,8 @@ static void test_coupler_index_is_clamped()
 //*********************************************************************************
 static void test_reverse_swaps_channels()
 {
-  Settings      s = makeSettings(DetectorType::AD8307);
+  Settings      s;
+  makeSettings(s, DetectorType::AD8307);
   MeterReadings r = measure(s, CALREV2_DEFAULT, CALFWD1_DEFAULT);   // rev > fwd
 
   TEST_ASSERT_TRUE(r.reverse);
@@ -183,7 +198,8 @@ static void test_reverse_swaps_channels()
 //*********************************************************************************
 static void test_reverse_only_calibration_leaves_forward_fit_alone()
 {
-  Settings s = makeSettings(DetectorType::AD8307);
+  Settings s;
+  makeSettings(s, DetectorType::AD8307);
 
   //  A weak reverse signal, so nothing here trips the fwd/rev swap and the
   //  assertions below are about the channels they name.
@@ -220,7 +236,8 @@ static void test_reverse_only_calibration_leaves_forward_fit_alone()
 //*********************************************************************************
 static void test_forward_calibration_moves_both_anchors()
 {
-  Settings s = makeSettings(DetectorType::AD8307);
+  Settings s;
+  makeSettings(s, DetectorType::AD8307);
 
   //  What "SET P1" writes with FWD OK, at a Ref of 30 dBm.
   s.cal[0].calAd[0].db10m    = 300;
@@ -240,7 +257,8 @@ static void test_forward_calibration_moves_both_anchors()
 //*********************************************************************************
 static void test_swr_from_known_rho()
 {
-  Settings      s = makeSettings(DetectorType::AD8307);
+  Settings      s;
+  makeSettings(s, DetectorType::AD8307);
   MeterReadings r = measure(s, CALFWD1_DEFAULT, CALREV2_DEFAULT);
 
   const double rho = 3.16227766 / 100.0;
@@ -255,7 +273,8 @@ static void test_swr_from_known_rho()
 //*********************************************************************************
 static void test_swr_holds_below_threshold()
 {
-  Settings s = makeSettings(DetectorType::AD8307);
+  Settings s;
+  makeSettings(s, DetectorType::AD8307);
 
   PowerMath     math;
   MeterReadings r;

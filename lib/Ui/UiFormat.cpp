@@ -12,20 +12,30 @@ static const char* const UNITS[8] = { "pW", "nW", "uW", "mW", "W", "kW", "MW", "
 
 void swr(char* out, size_t n, double s)
 {
-  uint16_t sub = (uint16_t)(s * 100);
-  uint16_t sup = sub / 100;
-  sub = sub % 100;
-
-  if (s < 2.0)        snprintf(out, n, "%u.%02u", sup, sub);
-  else if (s <= 10.0) snprintf(out, n, "%u.%01u", sup, sub / 10);
-  else if (s <= 1000) snprintf(out, n, "%4u", (uint16_t)s);
-  else                snprintf(out, n, "9999");
+  //  The x100 split into whole/tenths/hundredths is only ever used while s < 10,
+  //  where s * 100 fits a uint16_t without wrapping - so it lives inside those
+  //  branches rather than being computed (and truncated) at the top for every s.
+  //  The %u arguments are cast: uint16_t promotes to int, not unsigned int.
+  if (s < 2.0) {
+    const uint16_t sub = (uint16_t)(s * 100);
+    snprintf(out, n, "%u.%02u", (unsigned)(sub / 100), (unsigned)(sub % 100));
+  } else if (s <= 10.0) {
+    const uint16_t sub = (uint16_t)(s * 100);
+    snprintf(out, n, "%u.%01u", (unsigned)(sub / 100), (unsigned)((sub % 100) / 10));
+  } else if (s <= 1000) {
+    snprintf(out, n, "%4u", (unsigned)s);
+  } else {
+    snprintf(out, n, "9999");
+  }
 }
 
 void dbm(char* out, size_t n, int16_t db10m)
 {
-  int16_t t = (db10m < 0) ? -db10m : db10m;
-  int16_t w = t / 10;
+  //  int32_t, not int16_t: -db10m is negated as an int, but assigning INT16_MIN
+  //  back into an int16_t would overflow.  Unreachable at the real range
+  //  (-100..530), but the wide type costs nothing and removes the footgun.
+  int32_t t = (db10m < 0) ? -(int32_t)db10m : db10m;
+  int32_t w = t / 10;
   t = t % 10;
   if (db10m < 0) snprintf(out, n, "-%u.%udBm", (unsigned)w, (unsigned)t);
   else           snprintf(out, n, "%u.%udBm",  (unsigned)w, (unsigned)t);

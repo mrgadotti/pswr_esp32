@@ -273,15 +273,17 @@ spinlock. Core 0 publishes it every sample; the UI takes its own copy with `mete
 and then reads it through `meter.readings()` for the rest of the frame, so every value on screen
 belongs to the same instant. Task stacks, priorities and core assignments live in `AppConfig.h`.
 
-The only other crossing is one `volatile bool`: `clearSwrAlarm()` raises a flag that the meter task
+The only other crossing is one `std::atomic<bool>`: `clearSwrAlarm()` stores a flag that the meter task
 acts on at the top of its next cycle, on the core that owns the readings. A request landing in the
-window between the task testing the flag and clearing it is lost — that is an acknowledging tap with
+window between the task loading the flag and clearing it is lost — that is an acknowledging tap with
 the alarm still on screen, so the operator taps again, which costs less than a spinlock around a
 bool would.
 
 > `Settings` is the one piece of state written by the UI (menu, calibration) and read by the meter
-> task. Each field is word-sized and independently atomic, so the worst case is a single 2 ms cycle
-> computing with a mixed view during a settings change — deliberately left unlocked.
+> task. `Settings::coupler` is a `std::atomic<uint8_t>`, since it is the one value the two cores
+> exchange; the rest of the struct is read by the meter task only while a change is being written, so
+> the worst case is a single 2 ms cycle computing with a mixed view during a settings change —
+> deliberately left unlocked.
 
 ### Multiple couplers
 
@@ -300,7 +302,7 @@ one probe, one byte and one lookup, chained through three modules:
    `MeterEngine::selectCoupler()`, which repoints `detector_` and calls `PowerMath::reset()` — the
    peak/PEP/averaging windows hold samples scaled by the OTHER coupler's calibration, and left in
    place they would read plausible nonsense for a second or two. No spinlock needed: `coupler` is one
-   word-sized field, the same reasoning `clearSwrAlarm()` above relies on.
+   `std::atomic<uint8_t>`, the same reasoning `clearSwrAlarm()` above relies on.
 3. **Calibration follows the index.** `Settings::cal[MAX_COUPLERS]` holds one `Calibration` per
    coupler; `Settings::activeCal()` indexes it by `coupler − 1`, so `PowerMath` never has to know
    which coupler is selected — it just asks for "the active one" and gets the right numbers.

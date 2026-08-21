@@ -24,7 +24,11 @@ void ModeIntroScreen::build()
                       LV_EVENT_CLICKED, this);
 
   const lv_coord_t w = lv_disp_get_hor_res(nullptr);
-  const uint8_t    m = (uint8_t)mode_;
+
+  //  mode_ is clamped to 1..4 at the source (ConfigManager), but NAME1/NAME2 are
+  //  only 5 entries (0..4), so clamp here too rather than masking with & 7 - a
+  //  mask wraps mod 8 and would still index out of bounds for a corrupted 5..7.
+  const uint8_t m = ((uint8_t)mode_ >= 1 && (uint8_t)mode_ <= 4) ? (uint8_t)mode_ : 1;
 
   auto line = [&](const char* txt, const lv_font_t* font, lv_color_t colour,
                   lv_coord_t y) {
@@ -39,8 +43,8 @@ void ModeIntroScreen::build()
   };
 
   line("Mode:", UI_FONT_MED, UI_WHITE, 52);
-  line(NAME1[m & 7], UI_FONT_LARGE, UI_YELLOW, 88);
-  line(NAME2[m & 7], UI_FONT_LARGE, UI_YELLOW, 118);
+  line(NAME1[m], UI_FONT_LARGE, UI_YELLOW, 88);
+  line(NAME2[m], UI_FONT_LARGE, UI_YELLOW, 118);
 
   if (!app_->meter().detectorPresent())
     line("** SIMULATED SIGNAL **", UI_FONT_MED, UI_SIM, 174);

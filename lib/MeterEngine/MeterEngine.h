@@ -22,6 +22,8 @@
 
 #include <Arduino.h>
 
+#include <atomic>
+
 #include "PowerMath.h"
 #include "RfDetector.h"
 #include "Types.h"
@@ -52,7 +54,7 @@ public:
   //  clearing it is lost.  That is an acknowledgement gesture with the alarm
   //  still on screen, so the operator simply taps again; the alternative is a
   //  spinlock around a bool, which costs more than the failure does.
-  void clearSwrAlarm() { clearAlarmReq_ = true; }
+  void clearSwrAlarm() { clearAlarmReq_.store(true); }
 
   //  Reader-side view of the measurements, as of the last syncReadings().
   const MeterReadings& readings() const { return readerReadings_; }
@@ -96,9 +98,11 @@ private:
   uint8_t activeCoupler_ = 0;        // 1-based
   bool    simulated_     = false;    // couplers come from the mock, not the bus
 
-  //  Set by the UI, consumed by the meter task.  volatile because it is the one
-  //  field written on one core and read on the other outside the spinlock.
-  volatile bool clearAlarmReq_ = false;
+  //  Set by the UI, consumed by the meter task.  atomic rather than volatile
+  //  bool: it is the one field written on one core and read on the other outside
+  //  the spinlock, and the atomic store/load is the portable form of what a
+  //  volatile byte only happened to guarantee on this particular core.
+  std::atomic<bool> clearAlarmReq_{false};
 
   MeterReadings live_;             // core 0 only: the running state
   MeterReadings published_;        // shared: guarded by mux_

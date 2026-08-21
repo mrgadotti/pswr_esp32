@@ -8,6 +8,8 @@
 
 #include <stdint.h>
 
+#include <atomic>
+
 //  Detector front-end type.
 enum class DetectorType : uint8_t {
   AD8307 = 0,
@@ -96,7 +98,13 @@ struct Settings {
   uint8_t      scaleRange[3];
   DisplayMode  modeDisplay;
   uint8_t      pepIdx;              // index into PEP_OPTIONS / PEP labels
-  uint8_t      coupler;             // 1..MAX_COUPLERS, selects cal[] above
+
+  //  1..MAX_COUPLERS, selects cal[] above.  The one field written by the UI task
+  //  (MeterScreen) and read by the meter task (MeterEngine::taskLoop), so it is
+  //  atomic rather than a plain byte: it is the only crossing between the two
+  //  cores that carries a value, and std::atomic keeps that portable instead of
+  //  leaning on the Xtensa's aligned-byte atomicity.
+  std::atomic<uint8_t> coupler;
   //  0=HF 1=6M 2=2M 3=70cm.  Kept in NVS but no longer reachable from the UI:
   //  it only ever changed its own label, and the front panel row was needed for
   //  controls that do something.  Left in place because per-band calibration is

@@ -1,5 +1,12 @@
 //*********************************************************************************
 //**
+//**  REFERENCE ONLY - NOT COMPILED.  This is the original monolithic firmware,
+//**  kept for reference and backup while the project was split into lib/ modules.
+//**  It is NOT part of any PlatformIO environment: nothing #includes it and no
+//**  build rule touches this directory.  Do not "fix" or reformat it - divergence
+//**  from what shipped is what makes it useless as a reference.
+//**
+//**
 //** PSWR_CYD.ino  -  RF Power & SWR Meter for the ESP32 Cheap Yellow Display
 //**
 //** Single-file Arduino-IDE port of the menu driven Multi Display RF Power and

@@ -21,6 +21,7 @@
 //*********************************************************************************
 #include <unity.h>
 
+#include "AppConfig.h"
 #include "../../lib/Ui/UiFormat.cpp"
 
 static char buf[24];
@@ -141,6 +142,70 @@ static void test_cal_point_fits_its_documented_buffer()
   }
 }
 
+//*********************************************************************************
+//  AUTOSCALE
+//
+//  The 11/22/55 preset ladder and its decade switch.  AutoScale only reads
+//  Settings::detector and Settings::scaleRange, so the helper sets just those.
+//*********************************************************************************
+static void makeScaleSettings(Settings& s)
+{
+  s.detector      = DetectorType::AD8307;
+  s.scaleRange[0] = SCALE_RANGE1;
+  s.scaleRange[1] = SCALE_RANGE2;
+  s.scaleRange[2] = SCALE_RANGE3;
+  s.coupler       = 1;
+}
+
+//  A single push lands on the smallest preset that contains it.  The 30-sample
+//  window is otherwise zero, so the max of the window IS this one reading.
+static void test_autoscale_three_presets()
+{
+  Settings s;
+  makeScaleSettings(s);
+
+  {
+    UiFormat::AutoScale a;
+    TEST_ASSERT_DOUBLE_WITHIN(0.001, 1.1, a.push(1.0, s));   // 1 mW  -> 1.1 mW
+  }
+  {
+    UiFormat::AutoScale a;
+    TEST_ASSERT_DOUBLE_WITHIN(0.001, 2.2, a.push(2.0, s));   // 2 mW  -> 2.2 mW
+  }
+  {
+    UiFormat::AutoScale a;
+    TEST_ASSERT_DOUBLE_WITHIN(0.001, 5.5, a.push(3.0, s));   // 3 mW  -> 5.5 mW
+  }
+  {
+    UiFormat::AutoScale a;
+    TEST_ASSERT_DOUBLE_WITHIN(0.001, 55.0, a.push(30.0, s)); // 30 mW -> 55 mW
+  }
+}
+
+//  Crossing a preset boundary re-scales; crossing the top preset (55 x decade)
+//  steps up a full decade to the next 11.
+static void test_autoscale_decade_boundary()
+{
+  Settings s;
+  makeScaleSettings(s);
+
+  UiFormat::AutoScale a;
+  TEST_ASSERT_DOUBLE_WITHIN(0.001, 5.5, a.push(5.5, s));   // exactly at 55 x 0.1
+  TEST_ASSERT_DOUBLE_WITHIN(0.001, 11.0, a.push(5.6, s));  // past it -> next decade's R1
+}
+
+//  The diode front end has no sub-mW range: its decade starts at 10000, so even
+//  a small reading selects the 110 mW floor rather than a micro range.
+static void test_autoscale_diode_decade_floor()
+{
+  Settings s;
+  makeScaleSettings(s);
+  s.detector = DetectorType::Diode;
+
+  UiFormat::AutoScale a;
+  TEST_ASSERT_DOUBLE_WITHIN(0.001, 110.0, a.push(10.0, s));
+}
+
 int main(int, char**)
 {
   UNITY_BEGIN();
@@ -152,5 +217,8 @@ int main(int, char**)
   RUN_TEST(test_cal_point_shows_one_level_while_channels_agree);
   RUN_TEST(test_cal_point_names_both_levels_once_they_split);
   RUN_TEST(test_cal_point_fits_its_documented_buffer);
+  RUN_TEST(test_autoscale_three_presets);
+  RUN_TEST(test_autoscale_decade_boundary);
+  RUN_TEST(test_autoscale_diode_decade_floor);
   return UNITY_END();
 }
