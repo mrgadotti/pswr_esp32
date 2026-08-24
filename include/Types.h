@@ -32,15 +32,17 @@ constexpr ThemeMode THEME_DEFAULT = ThemeMode::Dark;
 //  reset the new theme to Dark on every boot.
 constexpr uint8_t THEME_MAX = static_cast<uint8_t>(ThemeMode::Dark2026);
 
-//  Display modes (same numbering as the original).
+//  Display modes (same numbering as the original; AnalogFwd = 5 is new and was
+//  appended rather than inserted so a meter's NVS-stored 1..4 stays valid).
 enum class DisplayMode : uint8_t {
   PowerBarPep     = 1,
   PowerMixed      = 2,
   PowerCleanDbm   = 3,
   ModulationScope = 4,
+  AnalogFwd       = 5,
 };
 constexpr uint8_t DISPLAY_MODE_MIN = 1;
-constexpr uint8_t DISPLAY_MODE_MAX = 4;
+constexpr uint8_t DISPLAY_MODE_MAX = 5;
 
 //  One AD8307 calibration point (was cal_t).
 //

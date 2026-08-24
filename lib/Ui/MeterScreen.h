@@ -43,6 +43,7 @@
 //*********************************************************************************
 #pragma once
 
+#include "AnalogMeterWidget.h"
 #include "PowerBarWidget.h"
 #include "Screen.h"
 #include "ScopeWidget.h"
@@ -62,8 +63,11 @@ private:
 
   //  Whether the PEP envelope window changes anything in this mode.  Fwd/Ref
   //  reads fwdPowerMw and refPowerMw and autoscales on the forward figure, so
-  //  the PEP window is not consulted anywhere on that screen.
-  static bool pepApplies(DisplayMode m) { return m != DisplayMode::PowerMixed; }
+  //  the PEP window is not consulted anywhere on that screen - and neither is
+  //  it on the analog gauge, which reads fwdPowerMw the same way.
+  static bool pepApplies(DisplayMode m) {
+    return m != DisplayMode::PowerMixed && m != DisplayMode::AnalogFwd;
+  }
 
   void buildContent(DisplayMode mode);
   void buildFrontPanel(DisplayMode mode);
@@ -102,9 +106,10 @@ private:
   bool fpHasPep_ = false;
   bool fpBuilt_  = false;
 
-  PowerBarWidget powerBar_[2];
-  SwrBarWidget   swrBar_;
-  ScopeWidget    scope_;
+  PowerBarWidget    powerBar_[2];
+  SwrBarWidget      swrBar_;
+  ScopeWidget       scope_;
+  AnalogMeterWidget analogMeter_;
 
   //  Text slots.  Which of these exist depends on the mode; unused ones stay
   //  null and every writer checks.

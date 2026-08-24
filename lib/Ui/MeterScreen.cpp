@@ -224,6 +224,12 @@ void MeterScreen::buildContent(DisplayMode mode)
       lblRight_ = makeLabel(UI_FONT_LARGE, UI_GREEN,  MX, 156, W_SWR,   LV_TEXT_ALIGN_RIGHT);
       break;
 
+    case DisplayMode::AnalogFwd:
+      analogMeter_.create(content_, MX, 2, MLEN, 150);
+      lblLeft_  = makeLabel(UI_FONT_LARGE, UI_YELLOW, MX, 156, nullptr, LV_TEXT_ALIGN_LEFT);
+      lblRight_ = makeLabel(UI_FONT_LARGE, UI_SWRTXT, MX, 156, W_SWR,   LV_TEXT_ALIGN_RIGHT);
+      break;
+
     case DisplayMode::PowerCleanDbm:
       powerBar_[0].create(content_, MX,  2, MLEN, 28);
       swrBar_.create(     content_, MX, 50, MLEN, 18);
@@ -304,6 +310,20 @@ void MeterScreen::updateBars(const MeterReadings& r, const Settings& s)
 {
   if (builtMode_ == DisplayMode::ModulationScope) return;
 
+  //  The gauge has no SWR bar - see the AnalogFwd case in buildContent() - so
+  //  it stops here too, same as ModulationScope above.  fwdPowerMw, not
+  //  peakPowerMw: the needle is the forward-power figure this mode exists to
+  //  show, autoscaled exactly like PowerMixed's bars are.
+  if (builtMode_ == DisplayMode::AnalogFwd) {
+    double adj;
+    char   unit[6];
+    const double scale = autoScale_.push(r.fwdPowerMw, s);
+    UiFormat::scalePowerMeter(scale, &adj, unit);
+    analogMeter_.setScale(adj, unit);
+    analogMeter_.setValue(r.fwdPowerMw, scale, r.swrAlarm);
+    return;
+  }
+
   const double alarm = (s.swrAlarmTrig != 40) ? s.swrAlarmTrig / 10.0 : 10.0;
   const double mid   = (alarm < 2.0) ? alarm : 2.0;
 
@@ -350,6 +370,14 @@ void MeterScreen::updateText(const MeterReadings& r, const Settings& s)
       setText(lblRight_, cacheRight_, sizeof(cacheRight_), buf);
       UiFormat::powerMw(num, sizeof(num), r.pepPowerMw);
       snprintf(buf, sizeof(buf), "PEP:%s", num);
+      setText(lblLeft_, cacheLeft_, sizeof(cacheLeft_), buf);
+      return;
+
+    case DisplayMode::AnalogFwd:
+      setColor(lblRight_, colRight_, r.swrAlarm ? UI_RED : UI_SWRTXT);
+      setText(lblRight_, cacheRight_, sizeof(cacheRight_), buf);
+      UiFormat::powerMw(num, sizeof(num), r.fwdPowerMw);
+      snprintf(buf, sizeof(buf), "Fwd:%s", num);
       setText(lblLeft_, cacheLeft_, sizeof(cacheLeft_), buf);
       return;
 
