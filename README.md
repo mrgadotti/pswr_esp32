@@ -409,7 +409,7 @@ V' = \begin{cases} \dfrac{V - V_{drop}}{\sqrt{2}} + V_{drop} & V \ge V_{drop} \\
 $$
 
 $$
-V_{line} = V' \times N \times \text{meter\_cal} \qquad N = \text{Calibration::bridgeCoupling},\ \ V_{drop} = \text{D\_VDROP} = 0.25\text{ V}
+V_{line} = V' \times N \times \text{meter\\_cal} \qquad N = \text{Calibration::bridgeCoupling},\ \ V_{drop} = \text{D\\_VDROP} = 0.25\text{ V}
 $$
 
 $$
@@ -441,14 +441,14 @@ Both are sliding **maxima**, held as centi-dB integers (`(int32_t)(100 × dB)`, 
 scan over the window is integer work:
 
 $$
-\text{peak}_{dB} = \max_{\text{last 50 samples}}(\cdot) \quad\rightarrow\ 100\text{ ms at SAMPLE\_MS} = 2\text{ ms}
+\text{peak}_{dB} = \max_{\text{last 50 samples}}(\cdot) \quad\rightarrow\ 100\text{ ms at SAMPLE\\_MS} = 2\text{ ms}
 $$
 
 $$
 \text{pep}_{dB} = \max\Big(\max_{\text{last }W\text{ peak values}}(\cdot),\ \ \text{peak}_{dB}\Big) \quad\rightarrow\ \text{never below the live peak}
 $$
 
-where $W = \text{PEP\_OPTIONS[pepIdx]} \in \{1, 10, 25\}$.
+where $W = \text{PEP\\_OPTIONS[pepIdx]} \in \{1, 10, 25\}$.
 
 The PEP ring advances **once per completed peak window**, not once per sample, so its window is
 `W × BUF_SHORT × SAMPLE_MS` = 100 ms / 1 s / 2.5 s. Converting back:
@@ -523,10 +523,10 @@ live detector volts against the dBm you dialled in:
 
 | Direction | Press | Stores | |
 | --- | --- | --- | --- |
-| **FWD OK** | `SET P1` | $(D_{f1}, V_{f1})$ and $(D_{r1}, V_{r1}) = (\text{ref\_dBm}, V_f)$ | both channels |
-| — | `SET P2` | $(D_{f2}, V_{f2})$ and $(D_{r2}, V_{r2}) = (\text{ref\_dBm}, V_f)$ | — |
-| **REV** | `SET P1` | $(D_{r1}, V_{r1}) = (\text{ref\_dBm}, V_r)$ | reverse only |
-| — | `SET P2` | $(D_{r2}, V_{r2}) = (\text{ref\_dBm}, V_r)$ | — |
+| **FWD OK** | `SET P1` | $(D_{f1}, V_{f1})$ and $(D_{r1}, V_{r1}) = (\text{ref\\_dBm}, V_f)$ | both channels |
+| — | `SET P2` | $(D_{f2}, V_{f2})$ and $(D_{r2}, V_{r2}) = (\text{ref\\_dBm}, V_f)$ | — |
+| **REV** | `SET P1` | $(D_{r1}, V_{r1}) = (\text{ref\\_dBm}, V_r)$ | reverse only |
+| — | `SET P2` | $(D_{r2}, V_{r2}) = (\text{ref\\_dBm}, V_r)$ | — |
 
 $$
 \text{dBm} = 10\log_{10}(P_{watts}) + 30
@@ -540,7 +540,7 @@ Two guards apply. A point is refused unless forward and reflected are separated 
 `CAL_INP_QUALITY` dB, i.e. into a decent dummy load:
 
 $$
-|V_f - V_r| > \frac{\text{CAL\_INP\_QUALITY} \times \text{LOGAMP\_SLOPE}}{1000} = 12 \times 0.0235 = 0.282\text{ V}
+|V_f - V_r| > \frac{\text{CAL\\_INP\\_QUALITY} \times \text{LOGAMP\\_SLOPE}}{1000} = 12 \times 0.0235 = 0.282\text{ V}
 $$
 
 and storing two points closer than `CAL_MIN_SPAN_V` = `0.05 V` (≈ 2 dB at the nominal slope) warns —
@@ -555,7 +555,7 @@ decoration. **20–30 dB apart is the useful spacing.**
 real points.
 
 $$
-D_2 = D_1 - 30\text{ dB} \qquad V_{f2} = V_{f1} - \frac{30 \times \text{LOGAMP\_SLOPE}}{1000}
+D_2 = D_1 - 30\text{ dB} \qquad V_{f2} = V_{f1} - \frac{30 \times \text{LOGAMP\\_SLOPE}}{1000}
 $$
 
 where `LOGAMP_SLOPE` = 23.5 mV/dB.
@@ -583,7 +583,7 @@ P1: F+40.0 R+20.0  F=2.233 R=1.800      after a reverse-only calibration
 **Diode — one point.** Since `P ∝ meter_cal²`, matching a known power is a square root:
 
 $$
-\text{meter\_cal} \leftarrow \text{meter\_cal} \times \sqrt{\frac{P_{known}}{P_{measured}}} \qquad \text{clamped to } [0.1,\ 10]
+\text{meter\\_cal} \leftarrow \text{meter\\_cal} \times \sqrt{\frac{P_{known}}{P_{measured}}} \qquad \text{clamped to } [0.1,\ 10]
 $$
 
 **Bridge coupling — the coupler's own turns ratio.** `meter_cal` above only trims a reading that is
@@ -663,7 +663,7 @@ $$
 **Diode:**
 
 $$
-V_{line} = \sqrt{\frac{P_{mW} \times 50}{1000}} \qquad V = \left(\frac{V_{line}}{N \times \text{meter\_cal}} - V_{drop}\right) \times \sqrt{2} + V_{drop}
+V_{line} = \sqrt{\frac{P_{mW} \times 50}{1000}} \qquad V = \left(\frac{V_{line}}{N \times \text{meter\\_cal}} - V_{drop}\right) \times \sqrt{2} + V_{drop}
 $$
 
 **Per channel, for the same reason §2a splits the anchors**: inverting both channels through the
