@@ -339,9 +339,9 @@ Symbols: `Vf`/`Vr` are the detector output volts, `Pf`/`Pr` forward and reflecte
 
 ADS1015, single-shot, PGA ±4.096 V, 12 bits, so one count is 4.096 V / 2048:
 
-```
-V = max(raw, 0) × 0.002          raw = conversion register >> 4   (12-bit, left-aligned)
-```
+$$
+V = \max(\text{raw},\ 0) \times 0.002 \qquad \text{raw} = \text{conversion register} \gg 4 \ \text{(12-bit, left-aligned)}
+$$
 
 The clamp at zero is deliberate: these detectors are single-ended positive, so a negative code is
 offset noise, not a negative signal. `AIN0` = forward, `AIN1` = reflected.
@@ -353,13 +353,13 @@ channel**: `(Df1, Vf1)` and `(Df2, Vf2)` for forward, `(Dr1, Vr1)` and `(Dr2, Vr
 with `D` in dBm. The AD8307 is logarithmic, so volts against dBm is a straight line and two points
 define it:
 
-```
-slope_f = (Df2 − Df1) / (Vf2 − Vf1)        [dB per volt]
-slope_r = (Dr2 − Dr1) / (Vr2 − Vr1)
+$$
+\text{slope}_f = \frac{D_{f2} - D_{f1}}{V_{f2} - V_{f1}} \qquad \text{slope}_r = \frac{D_{r2} - D_{r1}}{V_{r2} - V_{r1}} \quad \text{[dB/V]}
+$$
 
-dBm_f   = (Vf − Vf1) × slope_f + Df1
-dBm_r   = (Vr − Vr1) × slope_r + Dr1
-```
+$$
+\text{dBm}_f = (V_f - V_{f1}) \times \text{slope}_f + D_{f1} \qquad \text{dBm}_r = (V_r - V_{r1}) \times \text{slope}_r + D_{r1}
+$$
 
 **Two anchors, not one — this is the one structural departure from the reference's `cal_t`.**
 Forward and reverse are independent fits. They are measured together when the coupler is fed
@@ -384,10 +384,13 @@ monotonic and still tracking the carrier.
 Then, if `dBm_r > dBm_f`, the two are **swapped** and `reverse` is set — that is how the meter copes
 with being wired backwards, and it is why everything downstream can assume "forward" is the larger.
 
-```
-f  = 10^(dBm_f / 20)      Pf = f²           (equivalently Pf = 10^(dBm_f / 10), in mW)
-r  = 10^(dBm_r / 20)      Pr = r²
-```
+$$
+f = 10^{\,\text{dBm}_f / 20} \qquad P_f = f^2 \quad \left(\text{equivalently } P_f = 10^{\,\text{dBm}_f/10}\text{, in mW}\right)
+$$
+
+$$
+r = 10^{\,\text{dBm}_r / 20} \qquad P_r = r^2
+$$
 
 `f` and `r` are amplitudes (√mW, i.e. proportional to volts into 50 Ω), which is exactly what §6
 needs. Note `D` is stored as `db10m` = dBm × 10 in an `int16_t`, so the code divides by 10 wherever
@@ -398,51 +401,66 @@ a real dBm is wanted.
 Forward and reflected are swapped first (larger wins, same `reverse` flag). Then the diode drop is
 removed, the reading is converted from peak to RMS, and the coupler ratio is undone:
 
-```
-V' = (V − Vdrop) / √2 + Vdrop      for V ≥ Vdrop,   otherwise V' = V
-V_line = V' × N × meter_cal        N = BRIDGE_COUPLING = 24,  Vdrop = D_VDROP = 0.25 V
-P[mW]  = 1000 × V_line² / 50
-```
+$$
+V' = \begin{cases} \dfrac{V - V_{drop}}{\sqrt{2}} + V_{drop} & V \ge V_{drop} \\[4pt] V & \text{otherwise} \end{cases}
+$$
+
+$$
+V_{line} = V' \times N \times \text{meter\_cal} \qquad N = \text{BRIDGE\_COUPLING} = 24,\ \ V_{drop} = \text{D\_VDROP} = 0.25\text{ V}
+$$
+
+$$
+P_{mW} = \frac{1000 \times V_{line}^2}{50}
+$$
 
 Only the part **above** the diode drop is scaled by √2, because the drop is a DC offset the detector
 adds, not part of the sinusoid.
 
 ### 3 · Net power
 
-```
-Pf ← min(Pf, 9 000 000 mW)                     9 kW ceiling, so one wild sample cannot
-Pr ← min(Pr, 9 000 000 mW)                     poison the peak and average windows
-P_net    = |Pf − Pr|
-P_net,dB = 10 × log10(P_net)                   dBm; floored at −90 when P_net ≤ 1e−9
-```
+$$
+P_f \leftarrow \min(P_f,\ 9{,}000{,}000\text{ mW}) \qquad P_r \leftarrow \min(P_r,\ 9{,}000{,}000\text{ mW})
+$$
+
+9 kW ceiling, so one wild sample cannot poison the peak and average windows.
+
+$$
+P_{net} = |P_f - P_r| \qquad P_{net,dB} = 10\log_{10}(P_{net})
+$$
+
+In dBm; floored at −90 when $P_{net} \le 10^{-9}$.
 
 ### 4 · Peak hold and PEP
 
 Both are sliding **maxima**, held as centi-dB integers (`(int32_t)(100 × dB)`, truncated) so the
 scan over the window is integer work:
 
-```
-peak_dB = max over the last BUF_SHORT (50) samples          → 100 ms at SAMPLE_MS = 2 ms
-pep_dB  = max over the last W peak values, W = PEP_OPTIONS[pepIdx] ∈ {1, 10, 25}
-pep_dB  = max(pep_dB, peak_dB)                              → never below the live peak
-```
+$$
+\text{peak}_{dB} = \max_{\text{last 50 samples}}(\cdot) \quad\rightarrow\ 100\text{ ms at SAMPLE\_MS} = 2\text{ ms}
+$$
+
+$$
+\text{pep}_{dB} = \max\Big(\max_{\text{last }W\text{ peak values}}(\cdot),\ \ \text{peak}_{dB}\Big) \quad\rightarrow\ \text{never below the live peak}
+$$
+
+where $W = \text{PEP\_OPTIONS[pepIdx]} \in \{1, 10, 25\}$.
 
 The PEP ring advances **once per completed peak window**, not once per sample, so its window is
 `W × BUF_SHORT × SAMPLE_MS` = 100 ms / 1 s / 2.5 s. Converting back:
 
-```
-P_peak = 10^(peak_dB / 10)        P_pep = 10^(pep_dB / 10)     [mW]
-```
+$$
+P_{peak} = 10^{\,\text{peak}_{dB} / 10} \qquad P_{pep} = 10^{\,\text{pep}_{dB} / 10} \quad \text{[mW]}
+$$
 
 ### 5 · Averages
 
 Sliding sums, O(1) per sample rather than a rescan:
 
-```
-S ← S + x_new
-S ← S − x_oldest                  the slot about to be overwritten
-avg = S / (N − 1)
-```
+$$
+S \leftarrow S + x_{new} - x_{oldest} \qquad \text{avg} = \frac{S}{N - 1}
+$$
+
+($x_{oldest}$ is the slot about to be overwritten.)
 
 The divisor is `N − 1` and not `N` because after the subtraction the accumulator really does hold
 `N − 1` samples: the newest is in, the outgoing one is already out. `N` = `AVG_BUFSHORT` (50 →
@@ -450,11 +468,15 @@ The divisor is `N − 1` and not `N` because after the subtraction the accumulat
 
 ### 6 · SWR
 
-```
-ρ   = r / f                       amplitude ratio = √(Pr / Pf)
-ρ   ← min(ρ, 0.999)               ρ = 1 is infinite SWR; the clamp caps it at 1999:1
-SWR = (1 + ρ) / (1 − ρ)
-```
+$$
+\rho = \frac{r}{f} = \sqrt{\frac{P_r}{P_f}} \qquad \rho \leftarrow \min(\rho,\ 0.999)
+$$
+
+$\rho = 1$ is infinite SWR; the clamp caps it at 1999:1.
+
+$$
+\text{SWR} = \frac{1 + \rho}{1 - \rho}
+$$
 
 Computed **only** while `Pf > MIN_PWR_FOR_SWR_CALC` (20 mW for AD8307, 30 mW for the diode); below
 that the reflection coefficient is noise, so SWR holds its previous value instead of swinging with
@@ -479,9 +501,9 @@ The alarm **latches** — a brief flash during a tune-up should still be visible
 power threshold is gated the same way, with more force: an alarm that got harder to trip as the SWR
 got worse would stay quiet during the fault it exists to report.
 
-```
-alarm ← true   when   swrAlarmTrig ≠ 40   and   10 × SWR ≥ swrAlarmTrig   and   Pf > swrAlarmPwrThresh
-```
+$$
+\text{alarm} \leftarrow \text{true} \iff \text{swrAlarmTrig} \ne 40 \ \wedge\ 10 \times \text{SWR} \ge \text{swrAlarmTrig} \ \wedge\ P_f > \text{swrAlarmPwrThresh}
+$$
 
 A **tap anywhere on the measurement area acknowledges it**. The clear is handled on core 0
 (`MeterEngine::clearSwrAlarm`), so the red readouts and the LED follow on the next frame; with no
@@ -494,13 +516,16 @@ What the screen shows is `swrAvg`, the §5 average over `AVG_BUFSWR` updates.
 **AD8307 — two points, and yes, two known power levels is the intended way.** Each press stores the
 live detector volts against the dBm you dialled in:
 
-```
-FWD OK   SET P1  →  (Df1, Vf1) and (Dr1, Vr1) = (ref_dBm, Vf)     both channels
-         SET P2  →  (Df2, Vf2) and (Dr2, Vr2) = (ref_dBm, Vf)
-REV      SET P1  →  (Dr1, Vr1)                = (ref_dBm, Vr)     reverse only
-         SET P2  →  (Dr2, Vr2)                = (ref_dBm, Vr)
-dBm = 10 × log10(P_watts) + 30
-```
+| Direction | Press | Stores | |
+| --- | --- | --- | --- |
+| **FWD OK** | `SET P1` | $(D_{f1}, V_{f1})$ and $(D_{r1}, V_{r1}) = (\text{ref\_dBm}, V_f)$ | both channels |
+| — | `SET P2` | $(D_{f2}, V_{f2})$ and $(D_{r2}, V_{r2}) = (\text{ref\_dBm}, V_f)$ | — |
+| **REV** | `SET P1` | $(D_{r1}, V_{r1}) = (\text{ref\_dBm}, V_r)$ | reverse only |
+| — | `SET P2` | $(D_{r2}, V_{r2}) = (\text{ref\_dBm}, V_r)$ | — |
+
+$$
+\text{dBm} = 10\log_{10}(P_{watts}) + 30
+$$
 
 | W | 1 | 5 | 10 | 20 | 50 | 100 | 200 | 500 | 1000 |
 |---|---|---|---|---|---|---|---|---|---|
@@ -509,9 +534,9 @@ dBm = 10 × log10(P_watts) + 30
 Two guards apply. A point is refused unless forward and reflected are separated by at least
 `CAL_INP_QUALITY` dB, i.e. into a decent dummy load:
 
-```
-|Vf − Vr| > CAL_INP_QUALITY × LOGAMP_SLOPE / 1000 = 12 × 0.0235 = 0.282 V
-```
+$$
+|V_f - V_r| > \frac{\text{CAL\_INP\_QUALITY} \times \text{LOGAMP\_SLOPE}}{1000} = 12 \times 0.0235 = 0.282\text{ V}
+$$
 
 and storing two points closer than `CAL_MIN_SPAN_V` = `0.05 V` (≈ 2 dB at the nominal slope) warns —
 on either pair, forward or reverse — because the fit is a division by `Vf2 − Vf1` and a small
@@ -524,10 +549,11 @@ decoration. **20–30 dB apart is the useful spacing.**
 *synthesises* the second from the AD8307's nominal slope, which is why it is less accurate than two
 real points.
 
-```
-D2  = D1 − 30 dB
-Vf2 = Vf1 − 30 × LOGAMP_SLOPE / 1000      LOGAMP_SLOPE = 23.5 mV/dB
-```
+$$
+D_2 = D_1 - 30\text{ dB} \qquad V_{f2} = V_{f1} - \frac{30 \times \text{LOGAMP\_SLOPE}}{1000}
+$$
+
+where `LOGAMP_SLOPE` = 23.5 mV/dB.
 
 **Which channel gets written, and why the reference level follows it.** With forward dominant
 (`FWD OK`) the measured forward volts are copied into **both** `fwd` and `rev` — the reverse
@@ -551,33 +577,46 @@ P1: F+40.0 R+20.0  F=2.233 R=1.800      after a reverse-only calibration
 
 **Diode — one point.** Since `P ∝ meter_cal²`, matching a known power is a square root:
 
-```
-meter_cal ← meter_cal × √(P_known / P_measured)      clamped to [0.1, 10]
-```
+$$
+\text{meter\_cal} \leftarrow \text{meter\_cal} \times \sqrt{\frac{P_{known}}{P_{measured}}} \qquad \text{clamped to } [0.1,\ 10]
+$$
 
 ### 8 · Autoscale ([`UiFormat::AutoScale`](lib/Ui/UiFormat.cpp))
 
 A 30-sample sliding **maximum** — 300 ms of hold at `METER_TICK_MS` = 10 ms — then the smallest
 preset range that contains it:
 
-```
-max     = max of the last 30 values, in µW
-decade  = 1 (AD8307) or 10 000 (diode)             ; the diode front end has no µW range
-while decade × R3 < max:  decade ×= 10
+$$
+\max = \max(\text{last 30 values}) \ \text{[µW]} \qquad \text{decade} = \begin{cases} 1 & \text{AD8307} \\ 10{,}000 & \text{diode (no µW range)} \end{cases}
+$$
 
-FS = decade × R3   if max ≥ decade × R2
-   = decade × R2   if max ≥ decade × R1
-   = decade × R1   otherwise                        R = scaleRange = {11, 22, 55}
-```
+$$
+\text{while } \text{decade}\times R_3 < \max: \ \ \text{decade} \mathrel{\times}= 10
+$$
+
+$$
+FS = \begin{cases} \text{decade}\times R_3 & \max \ge \text{decade}\times R_2 \\ \text{decade}\times R_2 & \max \ge \text{decade}\times R_1 \\ \text{decade}\times R_1 & \text{otherwise} \end{cases}
+$$
+
+where $R = \text{scaleRange} = \{11,\ 22,\ 55\}$.
 
 ### 9 · Screen mapping
 
-```
-power bar   x     = len × P / FS                    linear; PEP tail runs x(P) … x(PEP)
-tick step   div   = 11 if ((int)(10 × FS_mantissa + 0.1) mod 11 == 0) else 10
-SWR bar     x     = len × log10(clamp(SWR, 1, 10))  logarithmic, 1…10 across the width
-scope       v     = (h / 2) × level / FS            drawn mirrored about the centre line
-```
+$$
+x_{power} = \text{len}\times\frac{P}{FS} \quad \text{linear; PEP tail runs } x(P)\ldots x(\text{PEP})
+$$
+
+$$
+\text{div} = \begin{cases} 11 & \lfloor 10 \times FS_{mantissa} + 0.1 \rfloor \bmod 11 = 0 \\ 10 & \text{otherwise} \end{cases}
+$$
+
+$$
+x_{SWR} = \text{len}\times\log_{10}\big(\text{clamp}(\text{SWR},\ 1,\ 10)\big) \quad \text{logarithmic, 1…10 across the width}
+$$
+
+$$
+v_{scope} = \frac{h}{2}\times\frac{\text{level}}{FS} \quad \text{drawn mirrored about the centre line}
+$$
 
 The `11` divisor is what makes the 11/22/55 presets land on whole numbers. The scope writes one
 column per meter tick and wraps, so its sweep is `len × METER_TICK_MS` = 300 × 10 ms = 3 s.
@@ -587,14 +626,21 @@ column per meter tick and wraps, so its sweep is `len × METER_TICK_MS` = 300 ×
 With no ADS1015 fitted, [`MockDetector`](lib/RfDetectors/MockDetector.cpp) runs the chain backwards
 so the whole UI stays exercisable. Given a walked power and SWR:
 
-```
-ρ  = (SWR − 1) / (SWR + 1)            Pr = Pf × ρ²
+$$
+\rho = \frac{\text{SWR} - 1}{\text{SWR} + 1} \qquad P_r = P_f \times \rho^2
+$$
 
-AD8307:   Vf     = Vf1 + (dBm_f − Df1) × (Vf2 − Vf1) / (Df2 − Df1)
-          Vr     = Vr1 + (dBm_r − Dr1) × (Vr2 − Vr1) / (Dr2 − Dr1)
-Diode:    V_line = √(P[mW] × 50 / 1000)
-          V      = (V_line / (N × meter_cal) − Vdrop) × √2 + Vdrop
-```
+**AD8307:**
+
+$$
+V_f = V_{f1} + (\text{dBm}_f - D_{f1}) \times \frac{V_{f2} - V_{f1}}{D_{f2} - D_{f1}} \qquad V_r = V_{r1} + (\text{dBm}_r - D_{r1}) \times \frac{V_{r2} - V_{r1}}{D_{r2} - D_{r1}}
+$$
+
+**Diode:**
+
+$$
+V_{line} = \sqrt{\frac{P_{mW} \times 50}{1000}} \qquad V = \left(\frac{V_{line}}{N \times \text{meter\_cal}} - V_{drop}\right) \times \sqrt{2} + V_{drop}
+$$
 
 **Per channel, for the same reason §2a splits the anchors**: inverting both channels through the
 forward reference level would have the mock feed the reverse detector volts that the real math no
@@ -665,21 +711,26 @@ In `platformio.ini`:
 ### Tests
 
 ```bash
-pio test -e native             # host tests: PowerMath + UiFormat
+pio test -e native                     # run all three host suites
+pio test -e native -f test_powermath   # run just one, by its directory name
+pio test -e native -v                  # verbose: print every assertion, not just failures
 ```
 
 No `BOARD_*` is set for the host environment and none is needed: nothing that reaches `Pins.h` is
 compiled there. That is also why a missing board is an `#error` rather than a default — a default
 would quietly build somebody's firmware against the wrong pin map.
 
-Two suites, both on the host, both covering places where a regression is a wrong *reading* rather
+Three suites, all on the host, all covering places where a regression is a wrong *reading* rather
 than a crash. `test_powermath` checks the measurement chain against **hand-computed** values rather
 than a captured run — and exists mostly for the paths a bench cannot reach: the per-coupler routing,
 which a meter with one ADS1015 fitted never exercises since the coupler control is locked and only
 `cal[0]` is ever selected, and the reverse-only calibration of §2a/§7, which needs the coupler
 physically fed backwards. `test_uiformat` pins the readout format: one decimal across the decades,
 nothing wider than `999.9mW` — the string `MeterScreen` anchors its layout from — and the two forms
-of the calibration-point line.
+of the calibration-point line. `test_ads1015` drives the real, unmodified `Ads1015Detector` against
+a simulated I²C chip (`test/test_ads1015/fakes/`) to pin the one piece of the chain a bench test
+cannot exercise safely: the raw register math (the bit shift, the negative-code clamp, AIN0/AIN1
+routing) and an absent device mid-read.
 
 The reverse-only case has both halves pinned, because it can fail in two directions:
 `test_reverse_only_calibration_leaves_forward_fit_alone` asserts that storing a reverse point moves
@@ -687,9 +738,11 @@ nothing on the forward side, and `test_forward_calibration_moves_both_anchors` a
 ordinary `FWD OK` press still moves both — a fix that split the anchors but forgot the second would
 turn every normal calibration into two divergent fits.
 
-`lib/Ui` is in the native environment's `lib_ignore` — the rest of it needs LVGL — so
-`test_uiformat` `#include`s `UiFormat.cpp` directly. That works precisely because `UiFormat` has no
-LVGL dependency, which is the whole reason it is its own file.
+`lib/Ui` and `lib/RfDetectors` are both in the native environment's `lib_ignore` — the first needs
+LVGL, the second needs Arduino/Wire — so `test_uiformat` and `test_ads1015` each `#include` the
+`.cpp` under test directly rather than linking the library. That works precisely because `UiFormat`
+has no LVGL dependency and `Ads1015Detector` only needs the two headers `test_ads1015/fakes/`
+stands in for, which is the whole reason each is its own file.
 
 ### Dependencies (managed by PlatformIO)
 
