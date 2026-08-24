@@ -84,15 +84,22 @@ constexpr uint8_t MAX_COUPLERS = 4;
 //  couplers on the same meter answer differently to the same RF.  One shared set
 //  would silently apply coupler 1's calibration to coupler 2 - and the reading
 //  would look perfectly plausible, which is the dangerous kind of wrong.
+//
+//  `detector` and `bridgeCoupling` live here, not in Settings, for the same
+//  reason: which front end is bolted to a coupler and what its transformer's
+//  turns ratio is are properties OF THAT COUPLER, not of the meter as a whole.
+//  A meter can carry one AD8307 coupler and two differently-wound diode
+//  bridges (e.g. 10:1 and 24:1) at once, and each must keep its own answer.
 struct Calibration {
-  CalPoint calAd[2];   // AD8307: the two-point fit
-  float    meterCal;   // diode / Bruene: the one-point scale factor
+  DetectorType detector;      // which front end this coupler carries
+  CalPoint calAd[2];          // AD8307: the two-point fit
+  float    meterCal;          // diode / Bruene: the one-point scale factor
+  double   bridgeCoupling;    // diode / Bruene: transformer turns ratio (N:1)
 };
 
 //  Persisted user settings (was the anonymous struct "R").
 struct Settings {
   Calibration  cal[MAX_COUPLERS];
-  DetectorType detector;
   uint8_t      swrAlarmTrig;        // SWR*10, 40 = off
   uint16_t     swrAlarmPwrThresh;   // mW
   uint8_t      scaleRange[3];

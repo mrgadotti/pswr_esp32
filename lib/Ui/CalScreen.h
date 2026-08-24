@@ -4,8 +4,10 @@
 //    AD8307 : four steppers (-10 / -1 / +1 / +10 dBm), then 1-LEVEL, SET P1,
 //             SET P2, BACK.  A two-point log-amp calibration, gated on the
 //             forward/reverse separation being large enough to trust.
-//    Diode  : the same steppers acting on watts, then SET CAL, RESET, BACK.
-//             A single-point scale factor.
+//    Diode  : the same steppers acting on watts, then SET CAL, N:1, RESET,
+//             BACK.  A single-point scale factor plus the coupler's
+//             transformer turns ratio, which N:1 hands off to AdjustScreen
+//             for - see openBridgeCoupling().
 //
 //  THE MATH IS LOAD-BEARING and is ported unchanged from the legacy
 //  handleCalBtn(): what gets stored in calAd[]/meterCal has to come out
@@ -35,6 +37,11 @@ private:
   void    flash(const char* msg, lv_color_t colour);
   void    refreshLive(const MeterReadings& r, const Settings& s);
   Quality quality(const MeterReadings& r) const;
+
+  //  Diode-only: pushes an AdjustScreen for the selected coupler's transformer
+  //  turns ratio (Calibration::bridgeCoupling).
+  void        openBridgeCoupling();
+  static void doneBridgeCoupling(void* ctx, int v);
 
   static constexpr uint8_t TICKS_REFRESH = 12;   // 12 * METER_TICK_MS = 120 ms
   static constexpr uint8_t MAX_BTN       = 8;

@@ -33,12 +33,13 @@
 static void makeSettings(Settings& s, DetectorType det)
 {
   for (uint8_t i = 0; i < MAX_COUPLERS; i++) {
-    s.cal[i].calAd[0] = { CAL1_NOR_VALUE, CAL1_NOR_VALUE, CALFWD1_DEFAULT, CALREV1_DEFAULT };
-    s.cal[i].calAd[1] = { CAL2_NOR_VALUE, CAL2_NOR_VALUE, CALFWD2_DEFAULT, CALREV2_DEFAULT };
-    s.cal[i].meterCal = METER_CAL;
+    s.cal[i].detector       = det;
+    s.cal[i].calAd[0]       = { CAL1_NOR_VALUE, CAL1_NOR_VALUE, CALFWD1_DEFAULT, CALREV1_DEFAULT };
+    s.cal[i].calAd[1]       = { CAL2_NOR_VALUE, CAL2_NOR_VALUE, CALFWD2_DEFAULT, CALREV2_DEFAULT };
+    s.cal[i].meterCal       = METER_CAL;
+    s.cal[i].bridgeCoupling = BRIDGE_COUPLING;
   }
 
-  s.detector          = det;
   s.coupler           = 1;
   s.pepIdx            = 0;
   s.swrAlarmTrig      = SWR_ALARM_DEFAULT;

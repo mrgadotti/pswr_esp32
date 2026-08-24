@@ -56,7 +56,7 @@ void MockDetector::read(float& fwdVolts, float& revVolts)
   //  on a meter with no hardware still exercises the path end to end.
   const Calibration& c = s_->activeCal();
 
-  if (s_->detector == DetectorType::AD8307)
+  if (c.detector == DetectorType::AD8307)
   {
     //  Undo the two-point log-amp fit: volts = V1 + (dBm - dBm1) * slope.
     //
@@ -94,8 +94,8 @@ void MockDetector::read(float& fwdVolts, float& revVolts)
     //  Undo the coupler ratio and the diode drop.
     const double vrmsF = sqrt(fwdMw * 50.0 / 1000.0);       // volts on the line
     const double vrmsR = vrmsF * rho;
-    const double cf    = vrmsF / (BRIDGE_COUPLING * c.meterCal);   // at the detector
-    const double cr    = vrmsR / (BRIDGE_COUPLING * c.meterCal);
+    const double cf    = vrmsF / (c.bridgeCoupling * c.meterCal);   // at the detector
+    const double cr    = vrmsR / (c.bridgeCoupling * c.meterCal);
 
     fwdVolts = (cf - D_VDROP) * 1.41421356 + D_VDROP;
     revVolts = (cr - D_VDROP) * 1.41421356 + D_VDROP;

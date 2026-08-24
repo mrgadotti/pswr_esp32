@@ -94,7 +94,12 @@ void PowerMath::addSample(float fwdVolts, float revVolts,
   out.vFwd = fwdVolts;
   out.vRev = revVolts;
 
-  if (s.detector == DetectorType::AD8307)
+  //  activeCal(), not s.detector: which front end is fitted is itself a
+  //  per-coupler property now, so it has to be read from the same place the
+  //  two-point fit and meterCal already come from.
+  const Calibration& c = s.activeCal();
+
+  if (c.detector == DetectorType::AD8307)
   {
     determineDbm(s, out);
     out.fInst      = pow(10, out.ad8307FwdDbm / 20.0);
@@ -106,7 +111,7 @@ void PowerMath::addSample(float fwdVolts, float revVolts,
   {
     //  Diode / Bruene bridge: undo the detector's diode drop and the coupler
     //  ratio to get back to line volts, then P = V^2 / 50.
-    const float mcal = s.activeCal().meterCal;
+    const float mcal = c.meterCal;
 
     float fv = out.vFwd, rv = out.vRev;
     if (fv >= rv) { out.reverse = false; }
@@ -114,12 +119,12 @@ void PowerMath::addSample(float fwdVolts, float revVolts,
 
     out.fInst = fv;
     if (out.fInst >= D_VDROP) out.fInst = (out.fInst - D_VDROP) / 1.41421356 + D_VDROP;
-    out.fInst = out.fInst * BRIDGE_COUPLING * mcal;
+    out.fInst = out.fInst * c.bridgeCoupling * mcal;
     out.fwdPowerMw = 1000.0 * sqr(out.fInst) / 50.0;
 
     out.rInst = rv;
     if (out.rInst >= D_VDROP) out.rInst = (out.rInst - D_VDROP) / 1.41421356 + D_VDROP;
-    out.rInst = out.rInst * BRIDGE_COUPLING * mcal;
+    out.rInst = out.rInst * c.bridgeCoupling * mcal;
     out.refPowerMw = 1000.0 * sqr(out.rInst) / 50.0;
   }
 
@@ -186,7 +191,7 @@ void PowerMath::addSample(float fwdVolts, float revVolts,
 
 void PowerMath::updateSwr(const Settings& s, MeterReadings& out)
 {
-  const double minCalc = (s.detector == DetectorType::AD8307)
+  const double minCalc = (s.activeCal().detector == DetectorType::AD8307)
                              ? MIN_PWR_FOR_SWR_CALC_AD8307
                              : MIN_PWR_FOR_SWR_CALC_DIODE;
 

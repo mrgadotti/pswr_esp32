@@ -26,6 +26,7 @@ private:
   void openSwrAlarmPower();
   void openPepPeriod();
   void openScaleRanges();
+  void openCalibrate();
   void openDetector();
   void openTheme();
   void openBrightness();
@@ -37,6 +38,7 @@ private:
   static void doneSwrAlarmPower(void* ctx, int sel);
   static void donePepPeriod(void* ctx, int sel);
   static void doneScaleRanges(void* ctx, int sel);
+  static void doneCalibrateCoupler(void* ctx, int sel);
   static void doneDetector(void* ctx, int sel);
   static void doneTheme(void* ctx, int sel);
   static void doneResetDefaults(void* ctx, int sel);

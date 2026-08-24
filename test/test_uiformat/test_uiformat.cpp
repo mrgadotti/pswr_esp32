@@ -146,15 +146,16 @@ static void test_cal_point_fits_its_documented_buffer()
 //  AUTOSCALE
 //
 //  The 11/22/55 preset ladder and its decade switch.  AutoScale only reads
-//  Settings::detector and Settings::scaleRange, so the helper sets just those.
+//  the active coupler's detector and Settings::scaleRange, so the helper sets
+//  just those.
 //*********************************************************************************
 static void makeScaleSettings(Settings& s)
 {
-  s.detector      = DetectorType::AD8307;
-  s.scaleRange[0] = SCALE_RANGE1;
-  s.scaleRange[1] = SCALE_RANGE2;
-  s.scaleRange[2] = SCALE_RANGE3;
-  s.coupler       = 1;
+  s.cal[0].detector = DetectorType::AD8307;
+  s.scaleRange[0]   = SCALE_RANGE1;
+  s.scaleRange[1]   = SCALE_RANGE2;
+  s.scaleRange[2]   = SCALE_RANGE3;
+  s.coupler         = 1;
 }
 
 //  A single push lands on the smallest preset that contains it.  The 30-sample
@@ -200,7 +201,7 @@ static void test_autoscale_diode_decade_floor()
 {
   Settings s;
   makeScaleSettings(s);
-  s.detector = DetectorType::Diode;
+  s.cal[0].detector = DetectorType::Diode;
 
   UiFormat::AutoScale a;
   TEST_ASSERT_DOUBLE_WITHIN(0.001, 110.0, a.push(10.0, s));

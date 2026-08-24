@@ -26,16 +26,19 @@ static void calKey(char* out, size_t n, const char* base, uint8_t idx)
 
 void ConfigManager::defaultCal(Calibration& c)
 {
+  c.detector = DETECTOR_DEFAULT;
+
   //  Both anchors start equal: a factory-default meter has never been calibrated
   //  reverse-only, so its two fits share the same pair of reference levels.
-  c.calAd[0] = { CAL1_NOR_VALUE, CAL1_NOR_VALUE, CALFWD1_DEFAULT, CALREV1_DEFAULT };
-  c.calAd[1] = { CAL2_NOR_VALUE, CAL2_NOR_VALUE, CALFWD2_DEFAULT, CALREV2_DEFAULT };
-  c.meterCal = METER_CAL;
+  c.calAd[0]       = { CAL1_NOR_VALUE, CAL1_NOR_VALUE, CALFWD1_DEFAULT, CALREV1_DEFAULT };
+  c.calAd[1]       = { CAL2_NOR_VALUE, CAL2_NOR_VALUE, CALFWD2_DEFAULT, CALREV2_DEFAULT };
+  c.meterCal       = METER_CAL;
+  c.bridgeCoupling = BRIDGE_COUPLING;
 }
 
-//  Mirrors the original setup() default block (note: detector and modeDisplay
-//  are intentionally NOT defaulted here - they are read from NVS with their own
-//  defaults in begin(), exactly as in the original firmware).
+//  Mirrors the original setup() default block (note: modeDisplay is
+//  intentionally NOT defaulted here - it is read from NVS with its own
+//  default in begin(), exactly as in the original firmware).
 void ConfigManager::loadDefaults()
 {
   for (uint8_t i = 0; i < MAX_COUPLERS; i++) defaultCal(settings_.cal[i]);
@@ -60,9 +63,6 @@ void ConfigManager::begin()
   loadDefaults();
 
   prefs_.begin("pswr", false);
-
-  settings_.detector =
-      static_cast<DetectorType>(prefs_.getUChar("det", static_cast<uint8_t>(DETECTOR_DEFAULT)));
 
   uint8_t mode = prefs_.getUChar("mode", DISPLAY_MODE_MIN);
   if (mode < DISPLAY_MODE_MIN || mode > DISPLAY_MODE_MAX) mode = DISPLAY_MODE_MIN;
@@ -118,7 +118,6 @@ void ConfigManager::saveTouchCal()
 
 void ConfigManager::save()
 {
-  prefs_.putUChar("det",  static_cast<uint8_t>(settings_.detector));
   prefs_.putUChar("mode", static_cast<uint8_t>(settings_.modeDisplay));
   prefs_.putUChar("pep",  settings_.pepIdx);
   prefs_.putUChar("cpl",  settings_.coupler);
@@ -139,6 +138,13 @@ void ConfigManager::loadCal(uint8_t idx)
   Calibration& c = settings_.cal[idx];
   char k[8];
 
+  //  "det", un-suffixed for coupler 1, is the SAME key the pre-per-coupler
+  //  firmware wrote its one global detector choice under - so an existing
+  //  meter's front end comes back as coupler 1's, with no migration step.
+  calKey(k, sizeof(k), "det",  idx);
+  c.detector = static_cast<DetectorType>(
+      prefs_.getUChar(k, static_cast<uint8_t>(c.detector)));
+
   calKey(k, sizeof(k), "c0db", idx); c.calAd[0].db10m = prefs_.getShort(k, c.calAd[0].db10m);
   calKey(k, sizeof(k), "c0f",  idx); c.calAd[0].fwd   = prefs_.getFloat(k, c.calAd[0].fwd);
   calKey(k, sizeof(k), "c0r",  idx); c.calAd[0].rev   = prefs_.getFloat(k, c.calAd[0].rev);
@@ -146,6 +152,7 @@ void ConfigManager::loadCal(uint8_t idx)
   calKey(k, sizeof(k), "c1f",  idx); c.calAd[1].fwd   = prefs_.getFloat(k, c.calAd[1].fwd);
   calKey(k, sizeof(k), "c1r",  idx); c.calAd[1].rev   = prefs_.getFloat(k, c.calAd[1].rev);
   calKey(k, sizeof(k), "mcal", idx); c.meterCal       = prefs_.getFloat(k, c.meterCal);
+  calKey(k, sizeof(k), "bcpl", idx); c.bridgeCoupling = prefs_.getDouble(k, c.bridgeCoupling);
 
   //  THE REVERSE ANCHORS, AND WHY THEY DEFAULT TO THE FORWARD ONES.
   //
@@ -172,6 +179,7 @@ void ConfigManager::saveCal(uint8_t idx)
   const Calibration& c = settings_.cal[idx];
   char k[8];
 
+  calKey(k, sizeof(k), "det",  idx); prefs_.putUChar(k, static_cast<uint8_t>(c.detector));
   calKey(k, sizeof(k), "c0db", idx); prefs_.putShort(k, c.calAd[0].db10m);
   calKey(k, sizeof(k), "c0f",  idx); prefs_.putFloat(k, c.calAd[0].fwd);
   calKey(k, sizeof(k), "c0r",  idx); prefs_.putFloat(k, c.calAd[0].rev);
@@ -179,13 +187,13 @@ void ConfigManager::saveCal(uint8_t idx)
   calKey(k, sizeof(k), "c1f",  idx); prefs_.putFloat(k, c.calAd[1].fwd);
   calKey(k, sizeof(k), "c1r",  idx); prefs_.putFloat(k, c.calAd[1].rev);
   calKey(k, sizeof(k), "mcal", idx); prefs_.putFloat(k, c.meterCal);
+  calKey(k, sizeof(k), "bcpl", idx); prefs_.putDouble(k, c.bridgeCoupling);
   calKey(k, sizeof(k), "c0rd", idx); prefs_.putShort(k, c.calAd[0].revDb10m);
   calKey(k, sizeof(k), "c1rd", idx); prefs_.putShort(k, c.calAd[1].revDb10m);
 }
 
 void ConfigManager::resetDefaults()
 {
-  settings_.detector          = DETECTOR_DEFAULT;
   settings_.modeDisplay       = DisplayMode::PowerBarPep;
   settings_.pepIdx            = 0;
   settings_.coupler           = 1;

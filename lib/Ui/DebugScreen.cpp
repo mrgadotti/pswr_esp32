@@ -55,11 +55,13 @@ void DebugScreen::onData(const MeterReadings& r, const Settings& s)
   snprintf(b, sizeof(b), "Vrev: %.4f V", r.vRev);
   lv_label_set_text(lblVr_, b);
 
-  if (s.detector == DetectorType::AD8307)
+  const Calibration& c = s.activeCal();
+
+  if (c.detector == DetectorType::AD8307)
     snprintf(b, sizeof(b), "Fwd %.1f dBm   Rev %.1f dBm", r.ad8307FwdDbm, r.ad8307RevDbm);
   else
     snprintf(b, sizeof(b), "Coupling %.0f:1  Vdrop %.2f V  cal %.3f",
-             BRIDGE_COUPLING, D_VDROP, s.activeCal().meterCal);
+             c.bridgeCoupling, D_VDROP, c.meterCal);
   lv_label_set_text(lblDet_, b);
 
   snprintf(b, sizeof(b), "Pwr %.1f mW   SWR %.2f", r.netPowerMw, r.swr);

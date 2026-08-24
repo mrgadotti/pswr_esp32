@@ -26,7 +26,7 @@ lv_obj_t* AboutScreen::addLine(lv_obj_t* parent, const char* txt,
 void AboutScreen::build()
 {
   const Settings& s  = app_->config().settings();
-  const bool  ad8307 = (s.detector == DetectorType::AD8307);
+  const bool  ad8307 = (s.activeCal().detector == DetectorType::AD8307);
 
   root_ = lv_obj_create(nullptr);
   UiTheme::styleScreen(root_);
@@ -128,7 +128,7 @@ void AboutScreen::build()
     snprintf(b, sizeof(b), "meter_cal  %.4f", c.meterCal);
     addLine(body, b, UI_FONT_SMALL, UI_CYAN);
     snprintf(b, sizeof(b), "Coupling  %.0f:1    Vdrop  %.2f V",
-             BRIDGE_COUPLING, D_VDROP);
+             c.bridgeCoupling, D_VDROP);
     addLine(body, b, UI_FONT_SMALL, UI_CYAN);
   }
 

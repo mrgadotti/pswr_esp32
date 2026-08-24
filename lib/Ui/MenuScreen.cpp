@@ -17,9 +17,14 @@
 //  Legacy table (DisplayManager.cpp), with the display settings added after the
 //  panel calibration - everything that changes how the meter LOOKS grouped
 //  together, and kept clear of the entries that change what it MEASURES.
+//
+//  No standalone "Detector" row: which front end a coupler carries is now
+//  chosen as the first step of Calibrate, not a separate trip through this
+//  menu - see openCalibrate().  Picking it anywhere else risks setting the
+//  wrong coupler's front end while looking at another coupler's numbers.
 static const char* const MENU_TOP[] = {
   "SWR Alarm", "SWR Alarm Power", "PEP Period", "Scale Ranges",
-  "Detector", "Calibrate", "Debug Display", "Touch Calibrate",
+  "Calibrate", "Debug Display", "Touch Calibrate",
   "Theme", "Brightness",
   "Reset to Default", "About", "Exit"
 };
@@ -56,14 +61,13 @@ void MenuScreen::finish(int sel)
     case 1: openSwrAlarmPower();  break;
     case 2: openPepPeriod();      break;
     case 3: openScaleRanges();    break;
-    case 4: openDetector();       break;
-    case 5: app_->requestPush(new CalScreen());   break;
-    case 6: app_->requestPush(new DebugScreen()); break;
-    case 7: app_->requestPush(new TouchCalScreen(&app_->touch())); break;
-    case 8:  openTheme();          break;
-    case 9:  openBrightness();     break;
-    case 10: openResetDefaults();  break;
-    case 11: app_->requestPush(new AboutScreen()); break;
+    case 4: openCalibrate();      break;
+    case 5: app_->requestPush(new DebugScreen()); break;
+    case 6: app_->requestPush(new TouchCalScreen(&app_->touch())); break;
+    case 7:  openTheme();          break;
+    case 8:  openBrightness();     break;
+    case 9:  openResetDefaults();  break;
+    case 10: app_->requestPush(new AboutScreen()); break;
     default: break;
   }
 }
@@ -169,13 +173,68 @@ void MenuScreen::doneScaleRanges(void* ctx, int sel)
   self->app_->markSettingsDirty();
 }
 
+//*********************************************************************************
+//  CALIBRATE  -  coupler, then front end, then the live screen that measures
+//  it.  Three steps rather than one menu row, because "front end" and "turns
+//  ratio" became PER-COUPLER properties (see the note on Calibration in
+//  Types.h): a meter can carry an AD8307 coupler and two differently-wound
+//  diode bridges at once, so Calibrate has to ask which coupler it is about
+//  to change before "which front end" or "what numbers" mean anything.
+//*********************************************************************************
+void MenuScreen::openCalibrate()
+{
+  const uint8_t n = app_->meter().couplerCount();
+
+  //  One coupler, nothing to choose between - the same condition that locks
+  //  the front panel's own CPL button, so the two never disagree about
+  //  whether picking a coupler is a real choice here.
+  if (n < 2) { openDetector(); return; }
+
+  const Settings& s = app_->config().settings();
+
+  char        bufs[MAX_COUPLERS][ListScreen::MAX_LEN];
+  const char* items[MAX_COUPLERS];
+  for (uint8_t i = 0; i < n; i++) {
+    snprintf(bufs[i], sizeof(bufs[i]), "CPL%u - %s", (unsigned)(i + 1),
+             s.cal[i].detector == DetectorType::AD8307 ? "AD8307" : "Diode");
+    items[i] = bufs[i];
+  }
+
+  const int start = (s.couplerIdx() < n) ? s.couplerIdx() : 0;
+
+  //  ListScreen copies the strings, so these stack buffers can die here.
+  auto* scr = new ListScreen("Calibrate", items, n, start);
+  scr->setOnDone(doneCalibrateCoupler, this);
+  app_->requestPush(scr);
+}
+
+void MenuScreen::doneCalibrateCoupler(void* ctx, int sel)
+{
+  if (sel < 0) return;
+  auto* self = static_cast<MenuScreen*>(ctx);
+
+  //  The same field the front panel's CPL button writes, and set for the same
+  //  reason MeterEngine::selectCoupler() drops the averaging windows on a
+  //  change: calibrating a coupler is exactly the moment it should become the
+  //  active one, so the live screens that follow read ITS numbers.
+  self->app_->config().settings().coupler = (uint8_t)(sel + 1);
+  self->app_->markSettingsDirty();
+
+  self->openDetector();
+}
+
+//  Which front end this coupler carries.  Always reachable through
+//  openCalibrate() now, never as its own menu row - see the note above.
 void MenuScreen::openDetector()
 {
   static const char* const ITEMS[2] = { "2x AD8307 (log)", "Diode / Bruene" };
-  const int start =
-      (app_->config().settings().detector == DetectorType::AD8307) ? 0 : 1;
+  const Settings& s = app_->config().settings();
+  const int start = (s.activeCal().detector == DetectorType::AD8307) ? 0 : 1;
 
-  auto* scr = new ListScreen("Detector", ITEMS, 2, start);
+  char t[24];
+  snprintf(t, sizeof(t), "Detector CPL%u", (unsigned)s.coupler);
+
+  auto* scr = new ListScreen(t, ITEMS, 2, start);
   scr->setOnDone(doneDetector, this);
   app_->requestPush(scr);
 }
@@ -184,9 +243,17 @@ void MenuScreen::doneDetector(void* ctx, int sel)
 {
   if (sel < 0) return;
   auto* self = static_cast<MenuScreen*>(ctx);
-  self->app_->config().settings().detector =
+  self->app_->config().settings().activeCal().detector =
       (sel == 0) ? DetectorType::AD8307 : DetectorType::Diode;
-  self->app_->markSettingsDirty();
+
+  //  saveCal(), not markSettingsDirty(): this is per-coupler calibration data,
+  //  not a Settings field, so the debounced general-settings commit would
+  //  never write it - see ConfigManager::saveCal().
+  self->app_->config().saveCal();
+
+  //  Front end chosen - now calibrate the coupler it belongs to, the whole
+  //  point of having come through Calibrate in the first place.
+  self->app_->requestPush(new CalScreen());
 }
 
 //*********************************************************************************

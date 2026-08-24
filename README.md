@@ -305,7 +305,10 @@ one probe, one byte and one lookup, chained through three modules:
    `std::atomic<uint8_t>`, the same reasoning `clearSwrAlarm()` above relies on.
 3. **Calibration follows the index.** `Settings::cal[MAX_COUPLERS]` holds one `Calibration` per
    coupler; `Settings::activeCal()` indexes it by `coupler − 1`, so `PowerMath` never has to know
-   which coupler is selected — it just asks for "the active one" and gets the right numbers.
+   which coupler is selected — it just asks for "the active one" and gets the right numbers. That
+   includes *which front end* the coupler is (`Calibration::detector`) and its turns ratio
+   (`Calibration::bridgeCoupling`, §7) — both per coupler, so one meter can carry an AD8307 coupler
+   and two differently-wound diode bridges at once.
 4. **Diagnosis.** `MeterEngine::activeAddress()` reads `detector_->diagId()` (0 when simulated), shown
    on the debug screen as `CPLn of N   ADS1015 @ 0xXX` — the fastest way to tell a coupler that never
    appears is an `ADDR`-strapping mistake rather than a wiring one.
@@ -406,7 +409,7 @@ V' = \begin{cases} \dfrac{V - V_{drop}}{\sqrt{2}} + V_{drop} & V \ge V_{drop} \\
 $$
 
 $$
-V_{line} = V' \times N \times \text{meter\_cal} \qquad N = \text{BRIDGE\_COUPLING} = 24,\ \ V_{drop} = \text{D\_VDROP} = 0.25\text{ V}
+V_{line} = V' \times N \times \text{meter\_cal} \qquad N = \text{Calibration::bridgeCoupling},\ \ V_{drop} = \text{D\_VDROP} = 0.25\text{ V}
 $$
 
 $$
@@ -414,7 +417,9 @@ P_{mW} = \frac{1000 \times V_{line}^2}{50}
 $$
 
 Only the part **above** the diode drop is scaled by √2, because the drop is a DC offset the detector
-adds, not part of the sinusoid.
+adds, not part of the sinusoid. `N` is the coupler's transformer turns ratio — a physical property of
+that coupler's hardware, not a firmware constant — so it is stored **per coupler**, alongside
+`meter_cal`, defaulting to `BRIDGE_COUPLING` = 24 until told otherwise. See §7 for how it is set.
 
 ### 3 · Net power
 
@@ -580,6 +585,25 @@ P1: F+40.0 R+20.0  F=2.233 R=1.800      after a reverse-only calibration
 $$
 \text{meter\_cal} \leftarrow \text{meter\_cal} \times \sqrt{\frac{P_{known}}{P_{measured}}} \qquad \text{clamped to } [0.1,\ 10]
 $$
+
+**Bridge coupling — the coupler's own turns ratio.** `meter_cal` above only trims a reading that is
+already in the right ballpark; it cannot fix a coupler wound with a different ratio, and a meter can
+carry more than one kind of diode/Bruene coupler at once — a 10:1 alongside a 24:1, say. So `N` in the
+§2b formula is **not** a firmware constant: it is `Calibration::bridgeCoupling`, stored and persisted
+per coupler exactly like `meter_cal` and the AD8307 fit, and defaulting to `BRIDGE_COUPLING` = 24 for a
+coupler that has never been told otherwise.
+
+It has no AD8307 equivalent, and that is deliberate rather than an oversight. The log amp's two-point
+fit (§2a) is anchored by applying a **known dBm at the main line** and reading the detector's output
+volts directly, so whatever the coupler's coupling factor or insertion loss happens to be is absorbed
+into that fit automatically — there is nothing left over for a separate ratio to correct. The
+diode/Bruene path has no such fit: it computes line voltage from detector volts by the closed-form
+`V' × N` above, so `N` has to be known explicitly. That is also why the Calibrate screen only ever
+shows an `N:1` button in Diode mode — in AD8307 mode there is nothing for it to do.
+
+Set from the Calibrate screen's `N:1` button (diode mode only), which opens a dedicated adjuster —
+`1…100`, step 1 — for the coupler selected when Calibrate was opened (see below), and writes straight
+to NVS on confirm.
 
 ### 8 · Autoscale ([`UiFormat::AutoScale`](lib/Ui/UiFormat.cpp))
 
@@ -797,7 +821,6 @@ static MeterReadings out;
 
 static void loadDefaults()
 {
-  cfg.detector          = DetectorType::AD8307;   // or DetectorType::Diode
   cfg.coupler           = 1;                      // selects cal[0]
   cfg.pepIdx            = 1;                      // PEP_OPTIONS[1] = 1 s
   cfg.swrAlarmTrig      = 30;                     // 3.0:1   (40 = alarm off)
@@ -807,10 +830,15 @@ static void loadDefaults()
   //  The two int16 levels are the FORWARD and REVERSE reference dBm x10 of that
   //  point; they differ only if the reverse channel was calibrated on its own
   //  (see 2a), so a single measurement pass sets both to the same value.
+  //  detector and bridgeCoupling live on the Calibration itself, not on
+  //  Settings - see §7 - because both are properties of THIS coupler's
+  //  hardware, not of the meter as a whole.
   Calibration& c = cfg.activeCal();
-  c.calAd[0] = { CAL1_NOR_VALUE, CAL1_NOR_VALUE, CALFWD1_DEFAULT, CALREV1_DEFAULT };
-  c.calAd[1] = { CAL2_NOR_VALUE, CAL2_NOR_VALUE, CALFWD2_DEFAULT, CALREV2_DEFAULT };
-  c.meterCal = METER_CAL;
+  c.detector       = DetectorType::AD8307;        // or DetectorType::Diode
+  c.calAd[0]       = { CAL1_NOR_VALUE, CAL1_NOR_VALUE, CALFWD1_DEFAULT, CALREV1_DEFAULT };
+  c.calAd[1]       = { CAL2_NOR_VALUE, CAL2_NOR_VALUE, CALFWD2_DEFAULT, CALREV2_DEFAULT };
+  c.meterCal       = METER_CAL;
+  c.bridgeCoupling = BRIDGE_COUPLING;              // diode/Bruene only, see §7
 }
 
 void setup()
@@ -886,7 +914,7 @@ Front-panel buttons on the meter screens:
 | **MODE** | cycle the 4 modes (Bargraph+PEP, Fwd/Ref, dBm, Modulation Scope) |
 | **CPL** *n* | select the coupler, one per ADS1015 found on the bus. Locked out when only one is fitted, since there is nothing to switch to |
 | **100ms / 1s / 2.5s** | PEP envelope window. Shown only on the modes it affects — Fwd/Ref displays instantaneous power and has no PEP reading to change |
-| **SET** | open the configuration menu (SWR Alarm, SWR Alarm Power, PEP Period, Scale Ranges, Detector, Calibrate, Debug Display, Touch Calibrate, Theme, Brightness, Reset to Default, About) |
+| **SET** | open the configuration menu (SWR Alarm, SWR Alarm Power, PEP Period, Scale Ranges, Calibrate, Debug Display, Touch Calibrate, Theme, Brightness, Reset to Default, About) |
 
 A **tap anywhere on the measurement area** acknowledges a latched SWR alarm — see §6. Nothing on
 screen announces it, which is deliberate: with no alarm latched the tap does nothing, so it costs
@@ -896,6 +924,13 @@ Each coupler carries **its own calibration**: a directional coupler's turns rati
 detector diodes are all baked into those numbers, so one shared set would silently apply coupler 1's
 calibration to coupler 2 — and the reading would look perfectly plausible, which is the dangerous
 kind of wrong.
+
+**Calibrate** starts by asking *which coupler* (skipped when only one is fitted — same lock as `CPL`
+above) and then *which front end* that coupler carries, AD8307 or Diode/Bruene, before opening the
+live calibration screen — a meter can have one of each kind fitted at once. That choice writes into
+`Calibration::detector` and, for Diode, seeds `Calibration::bridgeCoupling` (§7); there is no longer a
+separate top-level "Detector" entry, since picking a front end only ever makes sense for one specific
+coupler.
 
 All settings are persisted to NVS and restored after a reboot. NVS writes from the menu are
 debounced, so cycling a front-panel button repeatedly costs one flash write rather than one per tap.

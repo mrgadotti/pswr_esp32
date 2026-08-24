@@ -91,7 +91,7 @@ void scalePowerMeter(double fs, double* outFs, char* range)
 
 double AutoScale::push(double pMw, const Settings& s)
 {
-  double decade = (s.detector == DetectorType::AD8307) ? 1.0 : 10000.0;
+  double decade = (s.activeCal().detector == DetectorType::AD8307) ? 1.0 : 10000.0;
 
   buf_[idx_++] = pMw * 1000.0;                   // uW
   if (idx_ == SAMPLES) idx_ = 0;

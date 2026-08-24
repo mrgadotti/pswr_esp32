@@ -6,6 +6,7 @@
 #include <math.h>
 #include <stdio.h>
 
+#include "AdjustScreen.h"
 #include "AppConfig.h"
 #include "UiApp.h"
 #include "UiCallback.h"
@@ -25,7 +26,7 @@ static constexpr double CAL_QUAL_VOLTS = CAL_INP_QUALITY * LOGAMP_SLOPE * 0.001;
 void CalScreen::build()
 {
   const Settings& s = app_->config().settings();
-  isAd8307_  = (s.detector == DetectorType::AD8307);
+  isAd8307_  = (s.activeCal().detector == DetectorType::AD8307);
   refDb10m_  = s.activeCal().calAd[0].db10m;
 
   root_ = lv_obj_create(nullptr);
@@ -112,11 +113,15 @@ void CalScreen::buildButtons(bool ad8307)
     makeBtn(7, gap, 184, w - 2 * gap, 32,     CAL_BACK, "BACK");
     buttonCount_ = 8;
   } else {
-    const lv_coord_t bw2 = (w - 3 * gap) / 2;
-    makeBtn(4, gap,           y2, bw2, h, CAL_GO,    "SET CAL");
-    makeBtn(5, gap * 2 + bw2, y2, bw2, h, CAL_RESET, "RESET");
-    makeBtn(6, gap, 184, w - 2 * gap, 32,  CAL_BACK, "BACK");
-    buttonCount_ = 7;
+    //  Three buttons, not two: the coupler's turns ratio (N:1) is now a stored
+    //  parameter of its own - see openBridgeCoupling() - rather than the fixed
+    //  BRIDGE_COUPLING constant every coupler used to share.
+    const lv_coord_t bw3 = (w - 4 * gap) / 3;
+    makeBtn(4, gap,               y2, bw3, h, CAL_GO,   "SET CAL");
+    makeBtn(5, gap * 2 + bw3,     y2, bw3, h, CAL_NAVY, "N:1");
+    makeBtn(6, gap * 3 + bw3 * 2, y2, bw3, h, CAL_RESET, "RESET");
+    makeBtn(7, gap, 184, w - 2 * gap, 32,     CAL_BACK, "BACK");
+    buttonCount_ = 8;
   }
 }
 
@@ -182,7 +187,7 @@ void CalScreen::refreshLive(const MeterReadings& r, const Settings& s)
     lv_label_set_text(lblState_, b);
 
     snprintf(b, sizeof(b), "meter_cal=%.4f  N=%.0f:1  Vdrop=%.2f",
-             c.meterCal, BRIDGE_COUPLING, D_VDROP);
+             c.meterCal, c.bridgeCoupling, D_VDROP);
     lv_label_set_text(lblP1_, b);
     lv_label_set_text(lblP2_, "");
 
@@ -302,7 +307,7 @@ void CalScreen::onButton(lv_event_t* e)
   }
 
   //  Diode.
-  if (i == 6) { if (!going_) { going_ = true; app_->requestPop(); } return; }
+  if (i == 7) { if (!going_) { going_ = true; app_->requestPop(); } return; }
 
   if (i == 4) {
     if (r.fwdPowerMw < 100.0) { flash("No carrier - apply power first", UI_RED); return; }
@@ -317,11 +322,56 @@ void CalScreen::onButton(lv_event_t* e)
     snprintf(b, sizeof(b), "Stored: meter_cal = %.4f", c.meterCal);
     flash(b, UI_GREEN);
   }
-  else if (i == 5) {
+  else if (i == 5) {                                  // N:1
+    //  Hands off to AdjustScreen rather than growing another stepper mode on
+    //  this already-full button grid.  The turns ratio is an integer property
+    //  of the hardware (10:1, 24:1, ...), not something dialled in against a
+    //  live reading the way meter_cal is, so it does not need to share screen
+    //  space with the live Vf/Vr block above.
+    openBridgeCoupling();
+    return;
+  }
+  else if (i == 6) {
     c.meterCal = 1.0;
     app_->config().saveCal();
     flash("meter_cal reset to 1.0000", UI_YELLOW);
   }
 
   refreshLive(r, s);
+}
+
+//*********************************************************************************
+//  BRIDGE COUPLING  -  the transformer turns ratio (N:1), per coupler.
+//
+//  AD8307-only screens never reach here: the log amp reports dB directly and
+//  its two-point fit already absorbs whatever the coupler's insertion loss is,
+//  so there is no separate ratio for that front end to store.  It only applies
+//  to the diode/Bruene math in PowerMath::addSample(), which multiplies the
+//  detector volts by it before squaring - see Calibration::bridgeCoupling.
+//*********************************************************************************
+void CalScreen::openBridgeCoupling()
+{
+  Settings& s = app_->config().settings();
+
+  int v = (int)lround(s.activeCal().bridgeCoupling);
+  if (v < 1)   v = 1;
+  if (v > 100) v = 100;
+
+  //  Names the coupler for the same reason the title bar does: this still
+  //  writes into the SELECTED coupler's calibration, and calibrating the
+  //  wrong one produces a reading that looks right and is not.
+  char t[24];
+  snprintf(t, sizeof(t), "Coupling CPL%u", (unsigned)s.coupler);
+
+  auto* scr = new AdjustScreen(t, "turns ratio (N:1)", v, 1, 100, 1,
+                               /*tenths*/ false, /*topLbl*/ nullptr);
+  scr->setOnDone(doneBridgeCoupling, this);
+  app_->requestPush(scr);
+}
+
+void CalScreen::doneBridgeCoupling(void* ctx, int v)
+{
+  auto* self = static_cast<CalScreen*>(ctx);
+  self->app_->config().settings().activeCal().bridgeCoupling = (double)v;
+  self->app_->config().saveCal();
 }
