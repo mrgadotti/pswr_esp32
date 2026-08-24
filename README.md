@@ -944,3 +944,63 @@ The two levels only ever diverge once a reverse-only calibration is actually per
 **Touch Calibrate** shows four crosshairs inset from the panel edges and solves the raw-to-screen
 mapping from them; it is worth running once per panel, since LVGL hit-tests exactly and the
 compile-time default mapping is only approximate.
+
+## References
+
+Where to check [§ Measurement equations](#measurement-equations) independently — the reference
+firmware this project ported from, the datasheets and standard texts each formula traces back to,
+and the published designs that use the same approach.
+
+**The reference firmware.** `PowerMath`'s algorithms — the AD8307 two-point fit, the diode/Bruene
+path, the peak/PEP/averaging windows — are a faithful port of:
+
+- Loftur E. Jónasson, TF3LJ/VE2AO, *Multi Display RF Power and SWR Meter*, project page and source:
+  <https://sites.google.com/site/lofturj/15-power-and-swr-meter-rev-ii>. Later RA8875/GSL1680
+  additions by J.G. Holstein were carried over unchanged along with it.
+
+**AD8307 two-point log fit (§2a).**
+
+- Analog Devices, *AD8307: Low Cost, DC to 500 MHz, 92 dB Logarithmic Amplifier*, Data Sheet Rev. F:
+  <https://www.analog.com/media/en/technical-documentation/data-sheets/AD8307.pdf>. Nominal slope
+  25 mV/dB with device-to-device spread, ±1 dB log-conformance error over an 88 dB range — which is
+  exactly why the datasheet's own recommended fix is a per-unit two-point calibration against known
+  levels, the method §2a implements. The ±1 dB conformance error is also the floor on how accurate a
+  straight-line 2-point fit can ever be away from the calibration points, regardless of firmware.
+
+**Diode / Bruene bridge (§2b).**
+
+- Warren B. Bruene, W5OLY, "An Inside Picture of Directional Wattmeters," *QST*, April 1959,
+  pp. 24–28 — the directional-bridge topology this path is modeled on.
+- John Grebenkemper, KI6WX, "The Tandem Match — An Accurate Directional Wattmeter," *QST*,
+  January 1987 (follow-ups *QST* January 1988 and July 1993) — the coupler named in the reference
+  firmware's file header.
+- Wes Hayward, W7ZOI, and Bob Larkin, W7PUA, "Simple RF-Power Measurement," *QST*, June 2001,
+  pp. 38–43 — diode-detector linearization and calibration against a known load, the same idea
+  behind §2b's peak-to-RMS correction for the diode's forward voltage drop.
+- Roger Kopski, K3NHI, "An Advanced VHF Wattmeter," *QEX*, May/June 2002, pp. 3–8, and "A Simple RF
+  Power Calibrator," *QEX*, January/February 2004, pp. 51–54 — later refinements of the same
+  detector-calibration problem.
+
+**SWR / reflection coefficient (§6).**
+
+- *The ARRL Antenna Book*, current edition, transmission-line theory chapter — ρ and
+  SWR = (1 + ρ)/(1 − ρ) derived from first principles.
+- *The ARRL Handbook*, current edition, ch. 27, "Antenna and Transmission-Line Measurements" —
+  practical directional-bridge circuits and calibration procedure.
+- David M. Pozar, *Microwave Engineering*, Wiley, current edition, ch. 2 — the reflection-coefficient
+  and VSWR derivation in standard textbook form.
+
+**A commercial design using the same approach.**
+
+- TelePost Inc., *LP-100A Digital Vector RF Wattmeter Operations Manual*:
+  <http://www.telepostinc.com/LP-100A-Op_Manual.pdf>. Dual-AD8307 log detectors and a calibrated
+  slope per channel, same as §2a, with a finer multi-point calibration table where this firmware
+  uses two points — the accuracy/complexity trade-off §2a's note on log-conformance error describes.
+
+**Verdict.** Every equation in § Measurement equations checks out against the sources above: the
+AD8307 fit is the datasheet's own recommended calibration method, the SWR formula is the textbook
+reflection-coefficient identity, and the diode/Bruene path matches the coupler topology the reference
+firmware is named after. The two intentional departures from the reference — independent forward/
+reverse calibration anchors (§2a) and gating SWR updates on forward rather than net power (§6) — are
+both corrections of real, worked-through failure modes in the original, not arbitrary changes, and
+are covered by hand-computed values in `test_powermath`.
