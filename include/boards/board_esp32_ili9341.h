@@ -78,6 +78,7 @@
 //  for these modules) and touch gets HSPI.  Either way the two never share a
 //  host, which is the property that matters.
 //*********************************************************************************
+#define BOARD_TOUCH_IS_I2C    0
 #define BOARD_TOUCH_SPI_BUS   HSPI
 #define BOARD_TOUCH_ROTATION  1
 

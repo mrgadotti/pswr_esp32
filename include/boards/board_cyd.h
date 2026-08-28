@@ -40,6 +40,7 @@
 //  makes DMA flushing safe alongside touch reads, so the touch controller gets
 //  VSPI.  Two hosts, no arbitration, no shared state.
 //*********************************************************************************
+#define BOARD_TOUCH_IS_I2C    0
 #define BOARD_TOUCH_SPI_BUS   VSPI
 #define BOARD_TOUCH_ROTATION  1
 

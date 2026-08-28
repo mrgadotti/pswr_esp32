@@ -1,9 +1,10 @@
 # PSWR_CYD — RF Power & SWR Meter
 
 Firmware for a forward/reflected power and SWR meter, with multiple display modes, an on-screen
-configuration menu and touch calibration. It builds for **two** boards from the same sources —
-the **ESP32-2432S028R "Cheap Yellow Display" (CYD)** and a plain **ESP32 Dev Module driving a
-discrete 2.8" ILI9341 + XPT2046 module** — selected by one line in `platformio.ini`.
+configuration menu and touch calibration. It builds for **three** boards from the same sources —
+the **ESP32-2432S028R "Cheap Yellow Display" (CYD)**, a plain **ESP32 Dev Module driving a
+discrete 2.8" ILI9341 + XPT2046 module**, and a **2.8" IPS ESP32-S3 (ES3C28P/ES3N28P)** with
+FT6336 capacitive touch — selected by one line in `platformio.ini`.
 
 **Author:** Marcelo R. Gadotti — PP5MGT · **Version:** 1.00 · Licensed under **GPL v3 or later**.
 
@@ -20,38 +21,45 @@ would be a worse instrument, not a better one.
 
 ## Hardware
 
-**Two boards, one firmware.** The target is a single build flag: change `default_envs` in
+**Three boards, one firmware.** The target is a single build flag: change `default_envs` in
 `platformio.ini`, or pass `pio run -e <env>`. No source file is edited to change board.
 
-| | `[env:cyd]` | `[env:esp32dev_ili9341]` |
-|---|---|---|
-| Board | ESP32-2432S028R "Cheap Yellow Display" — everything integrated | ESP32 Dev Module + a discrete 2.8" ILI9341 + XPT2046 module (the common red "TJCTM24028-SPI" board) |
-| Select with | `-D BOARD_CYD` | `-D BOARD_ESP32_ILI9341` |
-| Panel bus | **HSPI** (`USE_HSPI_PORT`), IO_MUX pins, 55 MHz | **VSPI**, IO_MUX pins, 40 MHz |
-| Panel init | `ILI9341_2_DRIVER`, colours **inverted** | `ILI9341_DRIVER`, not inverted |
-| Touch bus | **VSPI** | **HSPI** |
-| Backlight | `TFT_BL` GPIO 21 | `TFT_BL` GPIO 27 |
-| Status LEDs | onboard RGB, active-low | none fitted; one flag away if you wire them |
-| I²C (ADS1015) | SDA 27 / SCL 22 | SDA 21 / SCL 22 |
+| | `[env:cyd]` | `[env:esp32dev_ili9341]` | `[env:esp32s3_es3c28p]` |
+|---|---|---|---|
+| Board | ESP32-2432S028R "Cheap Yellow Display" — everything integrated | ESP32 Dev Module + a discrete 2.8" ILI9341 + XPT2046 module (the common red "TJCTM24028-SPI" board) | 2.8" IPS ESP32-S3 (ES3C28P/ES3N28P kit) — everything integrated |
+| MCU | ESP32 | ESP32 | **ESP32-S3** (native USB, no USB-serial bridge) |
+| Select with | `-D BOARD_CYD` | `-D BOARD_ESP32_ILI9341` | `-D BOARD_ESP32S3_ES3C28P` |
+| Panel bus | **HSPI** (`USE_HSPI_PORT`), IO_MUX pins, 55 MHz | **VSPI**, IO_MUX pins, 40 MHz | **HSPI** (`USE_HSPI_PORT`), 40 MHz |
+| Panel init | `ILI9341_2_DRIVER`, colours **inverted** | `ILI9341_DRIVER`, not inverted | `ILI9341_DRIVER`, not inverted |
+| Touch | **XPT2046** resistive, own SPI host (VSPI) | **XPT2046** resistive, own SPI host (HSPI) | **FT6336** capacitive, **I2C** (not SPI) |
+| Backlight | `TFT_BL` GPIO 21 | `TFT_BL` GPIO 27 | `TFT_BL` GPIO 45 |
+| Status LEDs | onboard RGB, active-low | none fitted; one flag away if you wire them | none fitted (kit has one WS2812, not three discrete LEDs — see the board header) |
+| I²C (ADS1015) | SDA 27 / SCL 22 | SDA 21 / SCL 22 | SDA 16 / SCL 15 (shared with the FT6336 touch controller) |
 
-> **The invariant both boards keep: the touch controller is never on the panel's SPI host.** The
-> flush path deliberately leaves a DMA transfer in flight so LVGL can render the next area against
-> it (§ `LvglPort.cpp`), and a touch read poking the same peripheral mid-transfer corrupts the
-> screen at random — intermittently, under load, which is the worst way to find it. `Pins.h`
-> refuses to compile a board whose `BOARD_TOUCH_SPI_BUS` collides with `USE_HSPI_PORT`, so the
-> invariant is enforced rather than merely documented.
+> **On the two XPT2046 boards, the touch controller is never on the panel's SPI host.** The flush
+> path deliberately leaves a DMA transfer in flight so LVGL can render the next area against it
+> (§ `LvglPort.cpp`), and a touch read poking the same peripheral mid-transfer corrupts the screen
+> at random — intermittently, under load, which is the worst way to find it. `Pins.h` refuses to
+> compile a board whose `BOARD_TOUCH_SPI_BUS` collides with `USE_HSPI_PORT`, so the invariant is
+> enforced rather than merely documented. The ES3C28P board sidesteps the whole question: its touch
+> controller is on I2C, not SPI, so it can never collide with the panel's SPI host in the first
+> place — see `BOARD_TOUCH_IS_I2C` below.
 
-Common to both:
+Common to all three:
 
 | Peripheral | Detail |
 |---|---|
-| Display | ILI9341 320×240 via **TFT_eSPI** (pins in `platformio.ini` build flags) |
+| Display | ILI9341(V) 320×240 via **TFT_eSPI** (pins in `platformio.ini` build flags) |
 | Backlight | LEDC channel 0 at 5 kHz / 8 bits; duty floored at 10% so a menu can never leave the operator holding a black panel |
-| Touch | **XPT2046** resistive, on its own SPI host |
 | ADC | **ADS1015** (I2C `0x48`…`0x4B`, one per coupler); `AIN0` = forward, `AIN1` = reflected |
 | Cores | sampling + math on core 0, **LVGL 8.4** user interface on core 1 |
 
-Where a pin is *defined* follows the same split in both tables below: the seven `TFT_*` lines are
+Touch is the one peripheral that is *not* common: `BOARD_TOUCH_IS_I2C` (checked in `Pins.h`) picks
+between the XPT2046-over-SPI path both older boards use and the FT6336-over-I2C path the ES3C28P
+needs, and `Ili9341Driver` compiles in only the one the active board selects — see
+[Multiple touch technologies](#multiple-touch-technologies) below.
+
+Where a pin is *defined* follows the same split in all three sections below: the `TFT_*` lines are
 TFT_eSPI build flags in `platformio.ini` (that library is configured by macros at compile time and
 cannot read a `constexpr`), everything else is a `constexpr` in the board header. One copy of each,
 no second place to silently disagree.
@@ -116,23 +124,60 @@ matrix — and **34–39** are input-only, so only `T_DO` and `T_IRQ` are put th
 **Run Touch Calibrate first.** The compile-time mapping in the board header is the CYD's, carried
 over as a starting point; on a discrete panel it is a guess.
 
+### Pinout — `esp32s3_es3c28p`
+
+Nothing to wire: the ESP32-S3, the IPS panel and the FT6336 touch controller are one board (the
+vendor's "2.8inch_IPS_ESP32-S3_ILI9341V_ES3C28P_ES3N28P" kit). Pins are from the `cyd-dev` MCP
+index (`cyd_pinout` / `cyd_gotchas`, `board=esp32s3-es3c28p`), the same source `cyd_new_project`
+would generate a fresh project from. The operator adds only the ADS1015, on the FT6336's I2C bus.
+
+| Signal | GPIO | Bus / note |
+|---|---|---|
+| `TFT_MISO` | 13 | HSPI (`USE_HSPI_PORT`) |
+| `TFT_MOSI` | 11 | HSPI (`USE_HSPI_PORT`) |
+| `TFT_SCLK` | 12 | HSPI (`USE_HSPI_PORT`) |
+| `TFT_CS` | 10 | HSPI (`USE_HSPI_PORT`) |
+| `TFT_DC` | 46 | |
+| `TFT_RST` | −1 | no GPIO — tied to CHIP_PU |
+| `TFT_BL` | 45 | backlight, driven by LEDC (not TFT_eSPI's on/off) |
+| `TOUCH_SDA` | 16 | I2C — shared with the ES8311 audio codec this firmware does not use |
+| `TOUCH_SCL` | 15 | I2C |
+| `TOUCH_RST` | 18 | driven by `FT6336::begin()` (`lib/FT6336`) - HIGH, LOW, HIGH with a ~500 ms settle, then an ID-register sanity check |
+| `TOUCH_INT` | 17 | wired but unused — the driver polls, it does not attach an interrupt |
+| `LED_R` / `LED_G` / `LED_B` | — | **not fitted.** The kit has one addressable WS2812 (GPIO 42) instead of three discrete LEDs, which does not fit this firmware's per-colour contract — see `board_esp32s3_es3c28p.h` |
+| `I2C_SDA` | 16 | ADS1015 — same bus as `TOUCH_SDA`, different address range, no conflict |
+| `I2C_SCL` | 15 | ADS1015 — same bus as `TOUCH_SCL` |
+
+This board has **no USB-serial bridge** — the Type-C port is the ESP32-S3's native USB peripheral,
+which only enumerates while USB-CDC firmware is running (`env:esp32s3_es3c28p` sets
+`ARDUINO_USB_CDC_ON_BOOT` / `ARDUINO_USB_MODE`). If the port disappears after a bad flash, hold
+**BOOT** (GPIO0) while plugging in to force the ROM bootloader. PSRAM is intentionally left off in
+the shipped env so the same firmware boots on both the ES3C28P (8 MB PSRAM) and ES3N28P (none) — see
+the comment above `[env:esp32s3_es3c28p]` in `platformio.ini` before enabling it.
+
+**Run Touch Calibrate first**, same as the other two boards, even though the FT6336 is capacitive
+and needs no ADC stretch: the compiled-in mapping is only an *identity* map (§ Multiple touch
+technologies below), and Touch Calibrate is still the tool for nudging it if a specific panel reads
+a few pixels off.
+
 ### Board constants that are not pins
 
 Every value above has a companion in the same board header that decides what the pin *means*. These
 are the ones worth knowing before probing anything:
 
-| Constant | `cyd` | `esp32dev_ili9341` | What it decides |
-|---|---|---|---|
-| `BOARD_TFT_INVERT` | 1 | 0 | whether the driver calls `invertDisplay(true)`. Wrong value = a display that works perfectly, in negative |
-| `BOARD_TFT_ROTATION` | 1 | 1 | TFT_eSPI rotation; the whole UI is laid out for 320×240 landscape |
-| `BOARD_TOUCH_ROTATION` | 1 | 1 | XPT2046 rotation — the flag to change if touch answers on the wrong axis |
-| `TOUCH_MIN_X` … `TOUCH_MAX_Y` | 200…3700 / 240…3800 | same, as a starting guess | default raw-to-screen mapping, overwritten by Touch Calibrate and kept in NVS. Swap MIN and MAX on an axis that responds backwards — a reversed span is accepted on purpose |
-| `TOUCH_MIN_PRESSURE` | 300 | 300 | raw counts below which a press is ignored. Raise it against phantom taps, lower it if light presses are missed |
-| `TFT_BACKLIGHT_ON` | `HIGH` | `HIGH` | which level lights the panel (a `platformio.ini` flag, since TFT_eSPI reads it too) |
-| `BOARD_HAS_BACKLIGHT_PWM` | 1 | 1 | whether `TFT_BL` is a GPIO this firmware drives. 0 = LED tied to 3V3; the brightness setting is then stored and ignored |
-| `BOARD_HAS_RGB_LED` | 1 | 0 | whether the status LEDs exist |
-| `BOARD_LED_ACTIVE_LOW` | 1 | 0 | which level lights them |
-| `I2C_HZ` | 400 kHz | 400 kHz | ADS1015 bus clock |
+| Constant | `cyd` | `esp32dev_ili9341` | `esp32s3_es3c28p` | What it decides |
+|---|---|---|---|---|
+| `BOARD_TFT_INVERT` | 1 | 0 | **1** | whether the driver calls `invertDisplay(true)`. Wrong value = a display that works perfectly, in negative. Confirmed on hardware for all three: the ES3C28P's IPS ILI9341V panel needs it too, same as the CYD, even though it is otherwise a stock `ILI9341_DRIVER` panel like `esp32dev_ili9341`'s |
+| `BOARD_TFT_ROTATION` | 1 | 1 | 1 | TFT_eSPI rotation; the whole UI is laid out for 320×240 landscape |
+| `BOARD_TOUCH_IS_I2C` | 0 | 0 | **1** | which touch path `Ili9341Driver` compiles in — XPT2046/SPI (0) or FT6336/I2C (1). See Multiple touch technologies below |
+| `BOARD_TOUCH_ROTATION` | 1 | 1 | 1 | rotation applied to the raw touch reading — an XPT2046 library call on the two SPI boards, an `FT6336::setRotation()` library call on the I2C board (`lib/FT6336`). The flag to change if touch answers on the wrong axis, either way |
+| `TOUCH_MIN_X` … `TOUCH_MAX_Y` | 200…3700 / 240…3800 | same, as a starting guess | 0…319 / 0…239 (identity — see below) | default raw-to-screen mapping, overwritten by Touch Calibrate and kept in NVS. Swap MIN and MAX on an axis that responds backwards — a reversed span is accepted on purpose |
+| `TOUCH_MIN_PRESSURE` | 300 | 300 | 1 (unused) | raw counts below which a resistive press is ignored. The FT6336 has no analog pressure, so this is defined only to satisfy `Pins.h`'s contract and the driver never reads it on this board |
+| `TFT_BACKLIGHT_ON` | `HIGH` | `HIGH` | `HIGH` | which level lights the panel (a `platformio.ini` flag, since TFT_eSPI reads it too) |
+| `BOARD_HAS_BACKLIGHT_PWM` | 1 | 1 | 1 | whether `TFT_BL` is a GPIO this firmware drives. 0 = LED tied to 3V3; the brightness setting is then stored and ignored |
+| `BOARD_HAS_RGB_LED` | 1 | 0 | 0 | whether the status LEDs exist |
+| `BOARD_LED_ACTIVE_LOW` | 1 | 0 | 0 | which level lights them |
+| `I2C_HZ` | 400 kHz | 400 kHz | 400 kHz | ADS1015 bus clock |
 
 > If no ADS1015 is detected at boot, the meter runs on a **randomly walking mock** so the whole
 > interface — autoscale, bars, scope and all — can be exercised without RF hardware. It deliberately
@@ -163,7 +208,7 @@ graph TD
     MATH["PowerMath<br/>volts → W/SWR/dB<br/>no HW · no RTOS"]
     ADC["MeterEngine<br/>core-0 task · snapshot"]
     PORT["LvglPort<br/>LVGL display + input drivers<br/>draw buffers · DMA flush"]
-    DRV["Ili9341Driver<br/>TFT_eSPI panel · XPT2046 touch"]
+    DRV["Ili9341Driver<br/>TFT_eSPI panel · XPT2046/FT6336 touch"]
     DISP["Ui/<br/>screens · widgets · theme · screen stack"]
 
     SHARED["include/<br/>Pins.h · AppConfig.h · Types.h<br/>RfDetector · RawTouch · Backlight"]
@@ -209,6 +254,25 @@ graph TD
 > `MeterEngine.cpp` names the concrete ADS1015 type in exactly that one call — a different ADC
 > replaces its `#include` and that line, and nothing else in the project changes.
 >
+> <a id="multiple-touch-technologies"></a>**Multiple touch technologies, one `RawTouch` contract.**
+> The CYD and the discrete ESP32 build read an XPT2046 over its own SPI host; the ES3C28P reads an
+> FT6336 over I2C instead — a different bus, a different protocol, coordinates that arrive already
+> in panel-pixel space instead of an arbitrary ADC range. `Ili9341Driver` still implements one
+> `RawTouch` (`include/RawTouch.h`), so the calibration screen, `ConfigManager`'s NVS persistence and
+> `LvglPort`'s input driver never know which chip answered: `BOARD_TOUCH_IS_I2C` (checked in
+> `Pins.h`, next to the rest of the board contract) picks the touch-reading branch inside
+> `Ili9341Driver::readRaw()`/`touched()`/`begin()` at compile time, and everything above that class is
+> unchanged. The FT6336 side is `lib/FT6336`, copied verbatim from the vendor kit's own Arduino
+> library rather than written against the datasheet — a hand-rolled register read compiled fine but
+> never registered a touch on real hardware, most likely from an under-length RESET settle the
+> library's `reset()` gets right (and verifies against the chip's ID registers). The library rotates
+> the raw controller point into `BOARD_SCREEN_W x BOARD_SCREEN_H` space itself
+> (`FT6336::setRotation()`, driven by `BOARD_TOUCH_ROTATION` using the same 0-3 numbering
+> TFT_eSPI/XPT2046 already use in this project), so `Ili9341Driver` hands the point straight to the
+> same `TOUCH_MIN_X..MAX_Y` → `map()` → `constrain()` path the resistive boards use — with an
+> *identity* mapping instead of a resistive-panel stretch, so Touch Calibrate and its NVS-stored
+> mapping keep working unmodified on all three boards.
+>
 > **`PowerMath` is the piece worth reusing elsewhere**: no Arduino, no FreeRTOS, no hardware — feed
 > it detector volts and it returns a filled `MeterReadings`. It is also, with `UiFormat`, one of the
 > two parts that can be unit-tested on the host (`pio test -e native`) — which matters because
@@ -222,6 +286,7 @@ include/                  # shared constants and types (no logic)
   boards/                 #   one header per supported board - pins + feature flags
     board_cyd.h           #     ESP32-2432S028R "Cheap Yellow Display"
     board_esp32_ili9341.h #     ESP32 Dev Module + discrete 2.8" ILI9341 + XPT2046
+    board_esp32s3_es3c28p.h #   2.8" IPS ESP32-S3 (ES3C28P/ES3N28P), FT6336 on I2C
   AppConfig.h             #   VERSION, cal/threshold defaults, buffers, mock, MEMORY BUDGET
   Types.h                 #   DetectorType, DisplayMode, CalPoint, Settings, MeterReadings
   RfDetector.h            #   interface: any RF front-end (volts out)
@@ -232,7 +297,8 @@ lib/
   RfDetectors/            # ADS1015 front-end + simulator, both implementing RfDetector
   PowerMath/              # detector volts -> power/PEP/SWR.  Portable: no HW, no RTOS
   MeterEngine/            # core-0 task wiring a detector to the math + snapshot handoff
-  Ili9341Driver/          # TFT_eSPI panel + XPT2046 touch (hardware only)
+  Ili9341Driver/          # TFT_eSPI panel + XPT2046/FT6336 touch (hardware only)
+  FT6336/                 # vendored verbatim (esp32s3_es3c28p only) - see Dependencies
   LvglPort/               # LVGL display + input drivers, draw buffers, DMA flush
   Ui/                     # theme, formatting, screen stack, widgets, all screens
 src/
@@ -261,7 +327,7 @@ Two FreeRTOS tasks, one pinned to each core. The Arduino loop task is deleted at
 | Task | Core | Period | Owns |
 |---|---|---|---|
 | `meter` | 0 | `SAMPLE_MS` (2 ms) | ADS1015 / I2C, the mock, all power/PEP/SWR math |
-| `ui` | 1 | `UI_TICK_MS` (5 ms) | LVGL, panel, XPT2046 touch, status LEDs |
+| `ui` | 1 | `UI_TICK_MS` (5 ms) | LVGL, panel, touch controller, status LEDs |
 
 The measurement windows (`BUF_SHORT`, `AVG_BUF1S`, PEP) are counted in **samples**, so the math has
 to advance exactly once per acquisition — that is why it runs in the meter task rather than
@@ -698,30 +764,54 @@ true while the caller keeps its cadence.
 ```bash
 pio run                                 # compile the board named by default_envs
 pio run -t upload                       # flash it
-pio run -e esp32dev_ili9341 -t upload   # one-off build of the other board
+pio run -e esp32dev_ili9341 -t upload   # one-off build of another board
+pio run -e esp32s3_es3c28p  -t upload   # one-off build of the ESP32-S3 board
 pio device monitor                      # serial monitor (optional)
 ```
 
-`pio run` builds the board named by `default_envs` and **only** that one — the other environment
-stays defined and ready but is never compiled unless asked for by name. Switching target is one line
+> The ESP32-S3 board has no USB-serial bridge: hold **BOOT** (GPIO0) while plugging in the cable if
+> `-t upload` can't find the port (see its pinout section above).
+
+### Flashing a specific board, by port
+
+`pio run -t upload` auto-detects the port when exactly one board is attached. With more than one
+plugged in at once (or building on a headless/SSH machine), name the port explicitly with
+`--upload-port`; `pio device list` shows what is connected and its USB VID:PID, which is how to
+tell two boards apart when neither is labelled:
+
+| Env | USB-serial chip | Typical device | Command |
+|---|---|---|---|
+| `cyd` | CH340 (`VID:PID=1A86:7523`) | `/dev/ttyUSB0` | `pio run -e cyd -t upload --upload-port /dev/ttyUSB0` |
+| `esp32dev_ili9341` | whatever the dev-module board carries (commonly CP210x or CH340) | `/dev/ttyUSB*` | `pio run -e esp32dev_ili9341 -t upload --upload-port /dev/ttyUSB0` |
+| `esp32s3_es3c28p` | none — native USB-JTAG/CDC (`VID:PID=303A:1001`) | `/dev/ttyACM0` | `pio run -e esp32s3_es3c28p -t upload --upload-port /dev/ttyACM0` |
+
+`pio device monitor -p <port> -b 115200` opens the serial console the same way, once
+`-D BRINGUP_STATS=1` is enabled below — without it nothing is printed, by design (see the flag's
+own comment further down).
+
+`pio run` builds the board named by `default_envs` and **only** that one — the other environments
+stay defined and ready but are never compiled unless asked for by name. Switching target is one line
 at the top of `platformio.ini`, never a source edit:
 
 ```ini
 [platformio]
-default_envs = cyd                  ; or: esp32dev_ili9341
+default_envs = cyd                  ; or: esp32dev_ili9341 / esp32s3_es3c28p
 ```
 
 In `platformio.ini`:
 
-- `[common]` holds everything board-independent; the two board environments `extends` it and add
-  only their `-D BOARD_*`, their TFT_eSPI panel pins, the ILI9341 init variant and the bus clock.
-  Those flags have to be macros — TFT_eSPI is configured at compile time under `USER_SETUP_LOADED`
-  and cannot read a `constexpr` — which is exactly why the panel wiring lives here and everything
-  else lives in `include/boards/`. One copy each, no file that can silently disagree with the other.
+- `[common]` holds everything board-independent; each board environment `extends` it and adds its
+  `-D BOARD_*`, its TFT_eSPI panel pins, the ILI9341 init variant and the bus clock. Those flags have
+  to be macros — TFT_eSPI is configured at compile time under `USER_SETUP_LOADED` and cannot read a
+  `constexpr` — which is exactly why the panel wiring lives here and everything else lives in
+  `include/boards/`. One copy each, no file that can silently disagree with the other. The ESP32-S3
+  environment additionally overrides `board`, the native-USB and flash/PSRAM `board_build.*`
+  settings, and `lib_deps` (it drops `XPT2046_Touchscreen`, which its FT6336 touch never uses) —
+  because it is a different MCU family, not just a different panel on the same ESP32-WROOM-32.
 - Everything the firmware itself owns (touch controller and its bus, I²C, LEDs, panel quirks,
   optional peripherals) is in the board header. `Pins.h` selects one and then **checks the
   contract**: a board header missing a name is a compile error next to the list of what a board must
-  provide, not a mystery at runtime. Adding a third board is a new header, an `#elif`, and an env.
+  provide, not a mystery at runtime. Adding a fourth board is a new header, an `#elif`, and an env.
 - `lib_ldf_mode = deep+` resolves the cross-includes between the `lib/` modules.
 - `build_flags = -I include` puts the shared headers (`Types.h`, `AppConfig.h`, `Pins.h`,
   `boards/*.h`) on the include path for **every** compilation unit — the project `include/` folder
@@ -772,7 +862,11 @@ stands in for, which is the whole reason each is its own file.
 
 - [LVGL](https://lvgl.io) 8.4 — UI toolkit
 - [TFT_eSPI](https://github.com/Bodmer/TFT_eSPI) (Bodmer) — panel driver, used only as LVGL's flush target
-- [XPT2046_Touchscreen](https://github.com/PaulStoffregen/XPT2046_Touchscreen) (Paul Stoffregen)
+- [XPT2046_Touchscreen](https://github.com/PaulStoffregen/XPT2046_Touchscreen) (Paul Stoffregen) — `cyd` and `esp32dev_ili9341` only; not in `esp32s3_es3c28p`'s `lib_deps`
+- FT6336 (`esp32s3_es3c28p` only) — `lib/FT6336`, copied verbatim from the vendor kit's own Arduino
+  library rather than in `lib_deps` (it has no registry entry); excluded from `env:native`'s
+  `lib_ignore` since it includes `Arduino.h`/`Wire.h` directly. See
+  [Multiple touch technologies](#multiple-touch-technologies)
 
 ## Reusing the measurement chain elsewhere
 

@@ -104,9 +104,12 @@ void LvglPort::flushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* px
 //*********************************************************************************
 //  TOUCH
 //
-//  Ili9341Driver::readTouch() already does the raw->screen mapping, the pressure
-//  gate and the tirqTouched() short-circuit (which keeps an untouched poll to a
-//  single GPIO read instead of an SPI transaction).  What LVGL adds on top:
+//  Ili9341Driver::readTouch() already does the raw->screen mapping and, on the
+//  two XPT2046 boards, the pressure gate and the tirqTouched() short-circuit
+//  (which keeps an untouched poll to a single GPIO read instead of an SPI
+//  transaction - the FT6336 board has no IRQ short-circuit of its own, see
+//  Ili9341Driver.cpp, so an idle poll there costs one small I2C transaction
+//  instead).  What LVGL adds on top, the same on every board:
 //
 //  1. The coordinate latch.  readTouch() returns false without writing x/y, and
 //     LVGL needs a valid point on the RELEASED report too - it compares it
@@ -114,6 +117,7 @@ void LvglPort::flushCb(lv_disp_drv_t* drv, const lv_area_t* area, lv_color_t* px
 //     (0,0) on release silently swallows every click.
 //  2. Jitter filtering.  A resistive panel wanders a few pixels; 76 px buttons
 //     hide it today, but it shows up as drift once lists scroll kinetically.
+//     Harmless on the capacitive FT6336 board, which does not need it.
 //*********************************************************************************
 void LvglPort::readTouch(lv_indev_data_t* data)
 {

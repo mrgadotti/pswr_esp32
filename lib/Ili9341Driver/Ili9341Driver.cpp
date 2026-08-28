@@ -6,6 +6,17 @@
 #include "AppConfig.h"
 #include "Pins.h"
 
+#if BOARD_TOUCH_IS_I2C
+//  FT6336 is on I2C, so there is no host to contend with the panel's SPI for.
+//  The constructor only needs the controller's native (pre-rotation) panel
+//  resolution - the wiring and BOARD_TOUCH_ROTATION are supplied in begin(),
+//  matching how the XPT2046 branch below defers its own setup the same way.
+Ili9341Driver::Ili9341Driver()
+  : tft_(),
+    touch_(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_RST, TOUCH_NATIVE_W, TOUCH_NATIVE_H)
+{
+}
+#else
 //  The touch controller lives on its own SPI host - the panel has the other one
 //  to itself, which is what makes DMA flushing safe alongside touch reads.
 //  Which host is which is a board property (BOARD_TOUCH_SPI_BUS, checked against
@@ -17,6 +28,7 @@ Ili9341Driver::Ili9341Driver()
     touch_(TOUCH_CS, TOUCH_IRQ)
 {
 }
+#endif
 
 void Ili9341Driver::begin()
 {
@@ -32,9 +44,17 @@ void Ili9341Driver::begin()
   tft_.setRotation(BOARD_TFT_ROTATION);
   tft_.fillScreen(TFT_BLACK);
 
+#if BOARD_TOUCH_IS_I2C
+  //  FT6336::begin() owns Wire.begin(), the RESET pulse (with the ~500 ms
+  //  settle the chip needs before it will ACK on I2C) and a chip-ID sanity
+  //  check - all internal to lib/FT6336, none of it repeated here.
+  touch_.begin();
+  touch_.setRotation(BOARD_TOUCH_ROTATION);
+#else
   touchSpi_.begin(TOUCH_CLK, TOUCH_MISO, TOUCH_MOSI, TOUCH_CS);
   touch_.begin(touchSpi_);
   touch_.setRotation(BOARD_TOUCH_ROTATION);
+#endif
 
 #if BOARD_HAS_BACKLIGHT_PWM
   //  AFTER tft_.init(), which does its own pinMode/digitalWrite on TFT_BL.
@@ -71,12 +91,24 @@ void Ili9341Driver::setBrightness(uint8_t percent)
 
 bool Ili9341Driver::readRaw(int& x, int& y)
 {
+#if BOARD_TOUCH_IS_I2C
+  //  FT6336::read() already applies BOARD_TOUCH_ROTATION (set in begin()) to
+  //  the raw controller point before returning it, so points[0] is already in
+  //  BOARD_SCREEN_W x BOARD_SCREEN_H space - see the board header for why
+  //  TOUCH_MIN/MAX is then a plain identity map over this.
+  touch_.read();
+  if (!touch_.isTouched) return false;
+  x = touch_.points[0].x;
+  y = touch_.points[0].y;
+  return true;
+#else
   if (!touch_.tirqTouched() || !touch_.touched()) return false;
   TS_Point p = touch_.getPoint();
   if (p.z < TOUCH_MIN_PRESSURE) return false;
   x = p.x;
   y = p.y;
   return true;
+#endif
 }
 
 void Ili9341Driver::setTouchCal(int16_t minX, int16_t maxX, int16_t minY, int16_t maxY)
@@ -110,7 +142,15 @@ bool Ili9341Driver::readTouch(int& x, int& y)
   return true;
 }
 
-bool Ili9341Driver::touched() { return touch_.touched(); }
+bool Ili9341Driver::touched()
+{
+#if BOARD_TOUCH_IS_I2C
+  touch_.read();
+  return touch_.isTouched;
+#else
+  return touch_.touched();
+#endif
+}
 
 //  ctrl_cs = false: TFT_eSPI keeps driving CS itself, which is what
 //  setAddrWindow() assumes.  Only meaningful once the panel has a host to

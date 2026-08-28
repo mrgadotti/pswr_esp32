@@ -1,11 +1,12 @@
 //*********************************************************************************
 //  Ili9341Driver.h  -  Display + touch hardware.
 //
-//  Owns the TFT_eSPI panel and the XPT2046 touch controller (on its own SPI
-//  host, never the panel's).  Pure hardware abstraction - NO business logic, and
-//  no LVGL: the binding to LVGL lives in LvglPort, which is the only place that
-//  includes both.  The TFT object is exposed by reference so LvglPort can flush
-//  to it.
+//  Owns the TFT_eSPI panel and the touch controller: XPT2046 (on its own SPI
+//  host, never the panel's) on two boards, FT6336 (on I2C) on the third - which
+//  one is picked by BOARD_TOUCH_IS_I2C, see Pins.h.  Pure hardware abstraction -
+//  NO business logic, and no LVGL: the binding to LVGL lives in LvglPort, which
+//  is the only place that includes both.  The TFT object is exposed by reference
+//  so LvglPort can flush to it.
 //
 //  BOARD-INDEPENDENT BY CONSTRUCTION.  Every pin, bus, rotation and quirk comes
 //  from Pins.h (which resolves to one of include/boards/*.h) or from TFT_eSPI's
@@ -18,11 +19,16 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <TFT_eSPI.h>
-#include <XPT2046_Touchscreen.h>
 
 #include "Backlight.h"
 #include "Pins.h"
 #include "RawTouch.h"
+
+#if BOARD_TOUCH_IS_I2C
+  #include <FT6336.h>
+#else
+  #include <XPT2046_Touchscreen.h>
+#endif
 
 //  Panel geometry after rotation, from the selected board profile.  Kept as
 //  constexpr ints rather than used as raw macros because half the UI does signed
@@ -67,7 +73,16 @@ private:
   int16_t calMinY_ = TOUCH_MIN_Y;
   int16_t calMaxY_ = TOUCH_MAX_Y;
 
-  TFT_eSPI            tft_;
+  TFT_eSPI tft_;
+
+#if BOARD_TOUCH_IS_I2C
+  //  Constructed with the FT6336's native (pre-rotation) resolution; begin()
+  //  supplies the wiring and setRotation() the BOARD_TOUCH_ROTATION, both in
+  //  Ili9341Driver.cpp.  Vendored verbatim in lib/FT6336 - see the board
+  //  header for why a hand-rolled reader was replaced with it.
+  FT6336 touch_;
+#else
   SPIClass            touchSpi_;
   XPT2046_Touchscreen touch_;
+#endif
 };

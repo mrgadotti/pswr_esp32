@@ -15,7 +15,7 @@
 //** purpose: a meter that reads differently from the one its users calibrated
 //** against would be a worse instrument, not a better one.
 //**
-//** Targets.: TWO boards, selected by ONE define - no source edit either way.
+//** Targets.: THREE boards, selected by ONE define - no source edit either way.
 //**           Change `default_envs` in platformio.ini, or pass -e:
 //**
 //**             [env:cyd]               BOARD_CYD
@@ -27,16 +27,23 @@
 //**               panel on VSPI, touch on HSPI, no status LEDs.  Wiring table in
 //**               include/boards/board_esp32_ili9341.h.
 //**
-//**           Common to both:
-//**           - ILI9341 320x240 via TFT_eSPI (pins in platformio.ini build flags)
-//**           - XPT2046 resistive touch, always on the host the panel does NOT use
+//**             [env:esp32s3_es3c28p]   BOARD_ESP32S3_ES3C28P
+//**               2.8" IPS ESP32-S3 (ES3C28P/ES3N28P): integrated ILI9341V +
+//**               FT6336 capacitive touch on I2C (not XPT2046/SPI - the one
+//**               place this board does not follow the other two, see
+//**               BOARD_TOUCH_IS_I2C in Pins.h), no status LEDs.
+//**
+//**           Common to all three:
+//**           - ILI9341(V) 320x240 via TFT_eSPI (pins in platformio.ini build flags)
 //**           - ADS1015 (I2C) replaces the AD7991; AIN0=Fwd, AIN1=Rev
 //**           - dual core: measurement on core 0, user interface on core 1
 //**           - user interface built on LVGL 8.4
 //**
-//** What differs between boards is confined to include/boards/*.h (touch, I2C,
-//** LEDs, panel quirks) and the TFT_eSPI build flags in platformio.ini.  The
-//** measurement chain, the UI and this file are the same firmware on both.
+//** What differs between boards is confined to include/boards/*.h (touch
+//** technology and bus, I2C, LEDs, panel quirks), the small BOARD_TOUCH_IS_I2C
+//** branches in Ili9341Driver (touch hardware only), and the TFT_eSPI build
+//** flags in platformio.ini.  The measurement chain, the UI and this file are
+//** the same firmware on all three.
 //**
 //** If no ADS1015 is detected at boot, the meter falls back to a simulated
 //** detector so the whole interface stays exercisable without RF hardware.
